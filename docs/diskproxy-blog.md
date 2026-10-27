@@ -1,5 +1,7 @@
 # diskproxy and stable camera ingest with virtual disks and WebDAV
 
+![diskproxy illustrated as a brass machine carrying photo prints from a disk toward a camera lens.](https://raw.githubusercontent.com/firstpair/diskproxy/main/cover/diskproxy-cover.png)
+
 A camera card I had already ingested started copying from the beginning after
 my laptop changed timezones. The pictures were still there, the card identity
 was still there, and the filenames had not changed. I wanted to resume an
