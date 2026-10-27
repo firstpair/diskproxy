@@ -4,6 +4,7 @@ set -eu
 setopt NO_NOMATCH
 umask 077
 server=${DISKPROXY_SERVER:-$HOME/bin/diskproxy-server}
+default_config=${DISKPROXY_CONFIG:-$HOME/.config/diskproxy/config.json}
 state=${DISKPROXY_STATE_DIR:-${PMP_CARD_STATE_DIR:-$HOME/Library/Caches/diskproxy}}
 # Preserve control of a session created by the former pmp-card launcher.
 if [[ -z ${DISKPROXY_STATE_DIR:-} && -z ${PMP_CARD_STATE_DIR:-} && -d $HOME/Library/Caches/pmp-card/session ]]; then
@@ -86,8 +87,8 @@ for arg in "$@"; do
       print -u2 "Use diskproxy-server directly for $arg; the launcher mounts disk mode."; exit 1 ;;
   esac
 done
-if (( ! explicit_config )) && [[ -f $HOME/.config/diskproxy/config.json ]]; then
-  config_args+=(--config "$HOME/.config/diskproxy/config.json")
+if (( ! explicit_config )) && [[ -f $default_config ]]; then
+  config_args+=(--config "$default_config")
 fi
 [[ -x $server ]] || { print -u2 "Server binary not found: $server"; exit 1; }
 mkdir -p "$state"
@@ -102,14 +103,48 @@ cleanup() {
   fi
 }
 trap cleanup EXIT
-nohup "$server" "${config_args[@]}" "$@" --mode disk > "$session/server.json" 2> "$session/server.err" < /dev/null &!
+nohup "$server" serve "${config_args[@]}" "$@" --mode disk > "$session/server.json" 2> "$session/server.err" < /dev/null &
 pid=$!
 print -r -- "$pid" > "$session/pid"
-ps -p "$pid" -o lstart= > "$session/birth"
+ps -p "$pid" -o lstart= > "$session/birth" || true
 url=''
 for attempt in {1..200}; do
   url=$(plutil -extract url raw -o - "$session/server.json" 2>/dev/null) && break
-  if ! alive; then cat "$session/server.err" >&2; exit 1; fi
+  if ! alive; then
+    exit_code=0
+    wait "$pid" 2>/dev/null || exit_code=$?
+    if (( exit_code == 78 )); then
+      registration_args=()
+      remaining=("${config_args[@]}" "$@")
+      while (( ${#remaining} )); do
+        if [[ $remaining[1] == --config && ${#remaining} -ge 2 ]]; then
+          if [[ $remaining[2] == "$default_config" ]] || cmp -s "$remaining[2]" "$default_config"; then
+            remaining=("${remaining[@]:2}")
+            continue
+          fi
+        elif [[ $remaining[1] == --config=* ]]; then
+          selected_config=${remaining[1]#--config=}
+          if [[ $selected_config == "$default_config" ]] || cmp -s "$selected_config" "$default_config"; then
+            remaining=("${remaining[@]:1}")
+            continue
+          fi
+        fi
+        registration_args+=("$remaining[1]")
+        remaining=("${remaining[@]:1}")
+      done
+      ready=1
+      rm -rf -- "$session"
+      if (( ${#registration_args} )); then
+        print -u2 "Run diskproxy-server ${(j: :)${(q)registration_args}}"
+      else
+        print -u2 'Run diskproxy-server.'
+      fi
+      exit 78
+    fi
+    cat "$session/server.err" >&2
+    print -u2 'Options: --config FILE, --source-offset=+HH:MM; see diskproxy-server --help.'
+    exit 1
+  fi
   sleep 0.1
  done
 [[ $url == http://127.0.0.1:*/card.img ]] || {
@@ -129,6 +164,7 @@ for i in {0..31}; do
 [[ -n $mount ]] || { print -u2 'No mounted volume in attach.plist; inspect before stopping.'; exit 1; }
 diskutil info -plist "$device" | plutil -extract VolumeUUID raw -o - - > "$session/volume-id"
 ready=1
+disown 2>/dev/null || true
 print "Ready: $mount"
 print 'Select this volume in your application (under Disks in PMP).'
 print 'After use: diskproxy stop'

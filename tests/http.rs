@@ -69,6 +69,7 @@ impl Fixture {
         }
         let mut command = Command::new(env!("CARGO_BIN_EXE_diskproxy-server"));
         command
+            .arg("serve")
             .arg(root)
             .arg("--plugin=pmp")
             .arg("--source-offset=+08:00")
@@ -80,6 +81,16 @@ impl Fixture {
         if mode == "filtered" {
             command.arg("--history").arg(&history);
         }
+        let registered = Command::new(env!("CARGO_BIN_EXE_diskproxy-server"))
+            .args(command.get_args().skip(1))
+            .arg("--register")
+            .output()
+            .unwrap();
+        assert!(
+            registered.status.success(),
+            "{}",
+            String::from_utf8_lossy(&registered.stderr)
+        );
         let mut child = command.stdout(Stdio::piped()).spawn().unwrap();
         let mut line = String::new();
         BufReader::new(child.stdout.take().unwrap())

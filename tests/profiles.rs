@@ -5,7 +5,10 @@ use std::process::{Command, Output};
 use std::time::{Duration, UNIX_EPOCH};
 
 fn command(root: &Path, args: &[&str]) -> Output {
+    let defaults = tempfile::NamedTempFile::new().unwrap();
+    fs::write(defaults.path(), b"{}").unwrap();
     Command::new(env!("CARGO_BIN_EXE_diskproxy-server"))
+        .env("DISKPROXY_CONFIG", defaults.path())
         .arg(root)
         .arg("--plugin=pmp")
         .args(args)
@@ -151,4 +154,80 @@ fn unregistered_card_requires_known_mount_offset_and_never_guesses_from_exif() {
     assert!(String::from_utf8_lossy(&result.stderr).contains("first registration"));
     assert!(!root.path().join(".pmingest.dat").exists());
     assert!(!root.path().join(".pmp-ingest-proxy.json").exists());
+}
+
+#[test]
+fn bare_server_registers_with_default_config_and_current_zone_once() {
+    let temp = tempfile::tempdir().unwrap();
+    let card = temp.path().join("card");
+    photo(&card, 1789355532);
+    let config = temp.path().join("default.json");
+    fs::write(
+        &config,
+        serde_json::to_vec(&serde_json::json!({"plugin":"pmp", "source":card})).unwrap(),
+    )
+    .unwrap();
+    let invoke = || {
+        Command::new(env!("CARGO_BIN_EXE_diskproxy-server"))
+            .env("DISKPROXY_CONFIG", &config)
+            .env("TZ", "Asia/Tokyo")
+            .output()
+            .unwrap()
+    };
+    let first = invoke();
+    assert!(
+        first.status.success(),
+        "{}",
+        String::from_utf8_lossy(&first.stderr)
+    );
+    let info: serde_json::Value = serde_json::from_slice(&first.stdout).unwrap();
+    assert_eq!(info["source_offset"], "+09:00");
+    assert_eq!(info["source_basis"], "current timezone");
+    assert_eq!(info["target"], "+00:00");
+    assert_eq!(info["profile_saved"], true);
+    assert!(info.get("url").is_none());
+    let profile = fs::read(card.join(".pmp-ingest-proxy.json")).unwrap();
+    let marker = fs::read(card.join(".pmingest.dat")).unwrap();
+    let second = invoke();
+    assert!(
+        second.status.success(),
+        "{}",
+        String::from_utf8_lossy(&second.stderr)
+    );
+    let info: serde_json::Value = serde_json::from_slice(&second.stdout).unwrap();
+    assert_eq!(info["profile_saved"], false);
+    assert_eq!(info["source_basis"], "verified samples");
+    assert_eq!(
+        fs::read(card.join(".pmp-ingest-proxy.json")).unwrap(),
+        profile
+    );
+    assert_eq!(fs::read(card.join(".pmingest.dat")).unwrap(), marker);
+}
+
+#[test]
+fn serving_a_new_card_requests_registration_without_writing() {
+    let root = tempfile::tempdir().unwrap();
+    photo(root.path(), 1789355532);
+    let out = Command::new(env!("CARGO_BIN_EXE_diskproxy-server"))
+        .args(["serve", "--plugin=pmp", "--source-offset=+09:00"])
+        .arg(root.path())
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(78));
+    assert!(!root.path().join(".pmingest.dat").exists());
+    assert!(!root.path().join(".pmp-ingest-proxy.json").exists());
+}
+
+#[test]
+fn invalid_mount_offset_is_diagnosed_before_registration_advice() {
+    let root = tempfile::tempdir().unwrap();
+    photo(root.path(), 1789355532);
+    let out = Command::new(env!("CARGO_BIN_EXE_diskproxy-server"))
+        .args(["serve", "--plugin=pmp", "--source-offset=wrong"])
+        .arg(root.path())
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(1));
+    assert!(String::from_utf8_lossy(&out.stderr).contains("offset must be signed"));
+    assert!(!root.path().join(".pmingest.dat").exists());
 }

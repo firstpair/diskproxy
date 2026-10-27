@@ -94,12 +94,22 @@ diskproxy start --config configs/pmp.json \
 ```
 
 For headless service, WebDAV, or a read-only configuration check, use the server
-directly. Its startup output is JSON containing a random-capability URL:
+with the explicit `serve` command. Its startup output is JSON containing a
+random-capability URL:
 
 ```sh
-diskproxy-server /path/to/folder --plugin passthrough --mode webdav
+diskproxy-server serve /path/to/folder --plugin passthrough --mode webdav
 diskproxy-server --config ~/my-view.json --check
 ```
+
+Bare `diskproxy-server` is the card-registration command. It loads the default
+config (or the file selected by `DISKPROXY_CONFIG`), assumes the current local
+UTC offset for a newly mounted card, and uses UTC for a new card with no history.
+Already registered cards retain their profile. An unregistered card encountered
+by `diskproxy start` prompts `Run diskproxy-server.`; non-default arguments are
+included only when needed. Registration exits without mounting or serving.
+See the [PMP guide](plugins/pmp/README.md) for existing-history conventions and
+explicit offset overrides. The launcher itself always invokes `serve`.
 
 ## Plugins and architecture
 

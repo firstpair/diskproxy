@@ -1,3 +1,8 @@
 #!/bin/zsh
-# Legacy low-level server interface; all implementation now lives in diskproxy.
-exec "${DISKPROXY_SERVER:-$HOME/bin/diskproxy-server}" --plugin pmp "$@"
+# Legacy interface: serving stays the default; registration is explicit.
+for arg in "$@"; do
+  if [[ $arg == --register ]]; then
+    exec "${DISKPROXY_SERVER:-$HOME/bin/diskproxy-server}" --plugin pmp "$@"
+  fi
+done
+exec "${DISKPROXY_SERVER:-$HOME/bin/diskproxy-server}" serve --plugin pmp "$@"

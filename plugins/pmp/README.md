@@ -45,13 +45,41 @@ positional path. No manual server launch or URL copying is required.
 
 ## First registration
 
-Finish and review any intended EXIF corrections before sampling the card. For
-an unregistered card mounted while macOS is in Tokyo (UTC+09:00):
+Finish and review any intended EXIF corrections before sampling the card. Once
+the PMP use case is your default config, insert a new card and run:
 
 ```sh
-diskproxy-server --config ~/.config/diskproxy/pmp.json \
-  --source-offset=+09:00 --target-offset=+00:00 --register
+diskproxy-server
 ```
+
+It loads `~/.config/diskproxy/config.json`, infers the source offset from the
+Mac's current timezone, defaults a new card without history to UTC, registers,
+and exits. Then `diskproxy start` starts the ingest view normally. If you try
+starting an unregistered card first, the launcher prints just:
+
+```text
+Run diskproxy-server.
+```
+
+A non-default config or source path is included in that prompt when necessary.
+Errors such as an invalid config or unverified existing samples display
+diagnostics and override options instead. Default registration never silently
+falls back to the current timezone for an existing card with unverifiable samples.
+
+The first-registration offset assumes the card was mounted in the current
+computer timezone. A timezone change while it remained mounted cannot reliably
+be detected before a profile exists: remount first, or supply the known mount
+offset explicitly. For example, to override the source offset for a Tokyo mount:
+
+```sh
+diskproxy-server --source-offset=+09:00
+```
+
+`--config FILE`, `--target-offset=+00:00`, and `--register` remain accepted;
+none is needed for ordinary registration with the default PMP config. `register`
+is also an explicit subcommand. Use `--register` deliberately to refresh samples
+after reviewed source edits; repeating the bare command reuses an existing
+profile without rewriting it.
 
 This writes `.pmingest.dat` if absent and `.pmp-ingest-proxy.json` at the physical
 card root. The existing names and version-1 profile schema are retained for
@@ -61,7 +89,7 @@ no registration or conversion when migrating to diskproxy.
 
 `source_offset` is the offset used **when this physical card was mounted**, not
 necessarily the computer's timezone after a subsequent change. Do not guess it
-from EXIF. The profile stores three selected photo fingerprints and filesystem
+from EXIF. The profile stores up to three selected photo fingerprints and filesystem
 wall-clock anchors, letting later launches detect a changed mount offset from
 unchanged source samples. Changed samples are ignored; inability to verify a
 single offset fails and requires explicit reviewed re-registration. The profile
@@ -75,10 +103,10 @@ first registration. A saved profile rejects a conflicting target override.
 The visible volume label remains `PMP Pacific` by default for compatibility,
 including UTC cards; a label is not the card's time convention.
 
-After registration, ordinary launches read the profile. First serving an
-unregistered card with a known explicit source offset can also register it, for
-legacy compatibility; explicit `--register` is the recommended setup path.
-`--check` is read-only and never registers or mounts a card.
+After registration, ordinary launches read the profile. Serving never registers
+an unknown card automatically. The launcher uses `diskproxy-server serve`;
+manual headless serving must also specify `serve`. `--check` is read-only and
+never registers or mounts a card.
 
 ## Configuration and history filtering
 
@@ -105,7 +133,7 @@ diskproxy-server --config configs/pmp.json --check \
 ```
 
 The legacy `pmp-ingest-proxy` command is also retained as a shim to
-`diskproxy-server --plugin pmp`. Familiar flags `--source-offset`,
+`diskproxy-server serve --plugin pmp` (or registration when `--register` is supplied). Familiar flags `--source-offset`,
 `--target-offset`, `--target-zone`, `--history`, and `--profiles-dir` override
 the corresponding plugin settings directly. They require the PMP plugin.
 `--mode filtered` is the low-level compatibility alias for filtered WebDAV;
@@ -115,7 +143,7 @@ Supported plugin keys:
 
 | Key | Meaning |
 | --- | --- |
-| `source_offset` | Known initial mount offset, e.g. `+09:00`; normally omitted after registration. |
+| `source_offset` | Initial mount offset override, e.g. `+09:00`; defaults to the current timezone during first registration and to verified samples afterward. |
 | `target_offset` | Fixed ingest convention, e.g. `+00:00`; omit to reuse the saved profile. |
 | `target_zone` | Alternative IANA convention with date-specific DST; mutually exclusive with target_offset. Ambiguous/nonexistent times fail. |
 | `hide_ingested` | Hide exact history matches; defaults false. |

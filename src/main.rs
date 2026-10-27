@@ -33,7 +33,9 @@ struct Config {
 #[derive(Parser)]
 #[command(
     version,
-    about = "General-purpose read-only disk proxy with pluggable view policies"
+    about = "Register a card by default; use serve to run a read-only disk or WebDAV proxy",
+    override_usage = "diskproxy-server [serve|register] [OPTIONS] [SOURCE]",
+    after_help = "Without a command, registers a new card using the default config and current timezone. Existing profiles are reused unchanged. Use serve for headless serving, --check for a read-only check, and --register to explicitly refresh samples."
 )]
 struct Args {
     source: Option<PathBuf>,
@@ -89,9 +91,43 @@ fn override_value(root: &mut Value, expression: &str) -> Result<()> {
         .insert(parts.last().unwrap().to_string(), v);
     Ok(())
 }
-fn main() -> Result<()> {
-    let args = Args::parse();
-    let mut raw = if let Some(path) = &args.config {
+fn main() {
+    if let Err(error) = run() {
+        eprintln!("{error:#}");
+        std::process::exit(if error.is::<diskproxy_pmp::RegistrationRequired>() {
+            78
+        } else {
+            1
+        });
+    }
+}
+fn run() -> Result<()> {
+    let mut argv: Vec<_> = std::env::args_os().collect();
+    let operation = argv
+        .get(1)
+        .and_then(|s| s.to_str())
+        .filter(|s| matches!(*s, "serve" | "register"))
+        .map(str::to_owned);
+    if operation.is_some() {
+        argv.remove(1);
+    }
+    let args = Args::parse_from(argv);
+    ensure!(
+        !(operation.as_deref() == Some("serve") && args.register),
+        "serve and --register conflict"
+    );
+    let register = !args.check && (args.register || operation.as_deref() != Some("serve"));
+    let refresh = args.register; // Bare registration never rewrites an established profile.
+    let config_path = args
+        .config
+        .clone()
+        .or_else(|| std::env::var_os("DISKPROXY_CONFIG").map(PathBuf::from))
+        .or_else(|| {
+            let file =
+                PathBuf::from(std::env::var_os("HOME")?).join(".config/diskproxy/config.json");
+            file.is_file().then_some(file)
+        });
+    let mut raw = if let Some(path) = &config_path {
         serde_json::from_slice(
             &std::fs::read(path).with_context(|| format!("read config {}", path.display()))?,
         )?
@@ -141,13 +177,13 @@ fn main() -> Result<()> {
         match config.plugin {
             PluginName::Passthrough => {
                 ensure!(
-                    !args.register
+                    !register
                         && args.source_offset.is_none()
                         && args.target_offset.is_none()
                         && args.target_zone.is_none()
                         && args.history.is_none()
                         && args.profiles_dir.is_none(),
-                    "PMP options require --plugin pmp"
+                    "registration/PMP options require the PMP plugin; select a PMP config with --config FILE, or use diskproxy-server serve for a generic view"
                 );
                 (
                     Arc::new(Source::new(&source_path)?),
@@ -162,7 +198,8 @@ fn main() -> Result<()> {
                         .context("invalid plugins.pmp config")?;
                 options.source = source_path;
                 options.check = args.check;
-                options.register = args.register;
+                options.register = refresh;
+                options.register_if_new = register;
                 if args.source_offset.is_some() {
                     options.source_offset = args.source_offset;
                 }
@@ -193,7 +230,7 @@ fn main() -> Result<()> {
         };
     let label = config.label.unwrap_or_else(|| default_label.into());
     let view = View::new(source, plugin, label)?;
-    if args.check || args.register {
+    if args.check || register {
         let mut info = info;
         info["mode"] = json!(if config.mode == Presentation::Disk {
             "disk"

@@ -71,7 +71,7 @@ printf '%s\\n' '{"VolumeUUID":"SYNTHETIC-VOLUME-ID"}'
         args = (self.root / "arguments").read_text().splitlines()
         self.assertIn("/source with spaces", args)
         self.assertIn("plugins.pmp.hide_ingested=true", args)
-        self.assertEqual(args[:2], ["--config", str(self.config)])
+        self.assertEqual(args[:3], ["serve", "--config", str(self.config)])
         self.assertIn("Proxy running", self.run_launcher("status").stdout)
         self.assertNotEqual(self.run_launcher("start").returncode, 0)
         stopped = self.run_launcher("stop")
@@ -96,6 +96,41 @@ printf '%s\\n' '{"VolumeUUID":"SYNTHETIC-VOLUME-ID"}'
         self.assertNotEqual(self.run_launcher("stop").returncode, 0)
         self.assertIn("Proxy running", self.run_launcher("status").stdout)
         self.assertTrue(self.device.exists())
+
+    def test_new_card_prints_only_the_default_registration_command(self):
+        self.write_executable("server", "#!/bin/sh\nexit 78\n")
+        self.env["DISKPROXY_CONFIG"] = str(self.config)
+        started = self.run_launcher("start")
+        self.assertEqual(started.returncode, 78)
+        self.assertEqual(started.stderr, "Run diskproxy-server.\n")
+        self.assertEqual(started.stdout, "")
+        self.assertFalse((self.root / "state/session").exists())
+
+    def test_equivalent_pmp_alias_config_needs_no_extra_options(self):
+        self.write_executable("server", "#!/bin/sh\nexit 78\n")
+        self.env["DISKPROXY_CONFIG"] = str(self.config)
+        equivalent = self.root / "pmp.json"
+        equivalent.write_bytes(self.config.read_bytes())
+        started = self.run_launcher("--config", str(equivalent), "start")
+        self.assertEqual(started.returncode, 78)
+        self.assertEqual(started.stderr, "Run diskproxy-server.\n")
+
+    def test_new_card_preserves_a_custom_source_in_registration_advice(self):
+        self.write_executable("server", "#!/bin/sh\nexit 78\n")
+        self.env["DISKPROXY_CONFIG"] = str(self.config)
+        started = self.run_launcher("start", "/another card")
+        self.assertEqual(started.returncode, 78)
+        self.assertIn("Run diskproxy-server", started.stderr)
+        self.assertIn("another", started.stderr)
+        self.assertNotIn("--source-offset", started.stderr)
+        self.assertFalse((self.root / "state/session").exists())
+
+    def test_unexpected_startup_error_prints_diagnostics_and_options(self):
+        self.write_executable("server", "#!/bin/sh\necho 'invalid config' >&2\nexit 1\n")
+        started = self.run_launcher("start", "--config", str(self.config))
+        self.assertNotEqual(started.returncode, 0)
+        self.assertIn("invalid config", started.stderr)
+        self.assertIn("Options:", started.stderr)
 
     def test_incompatible_lifecycle_flags_fail_before_server(self):
         for arg in ("--register", "--check", "--mode=webdav"):

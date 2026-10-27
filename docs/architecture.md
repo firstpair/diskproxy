@@ -27,17 +27,20 @@ interpretation of unknown-offset filesystem timestamps.
 
 `diskproxy-pmp` is a separate crate depending on this public API. It prepares a
 policy from card identity, portable fingerprint anchors, the mount offset, and
-an optional immutable in-memory snapshot of ingest history. Its explicit
-registration/setup can write the card marker/profile; its source-image opens
-remain read-only. It never changes EXIF or an original catalog.
+an optional immutable in-memory snapshot of ingest history. Its default registration
+operation (bare `diskproxy-server`) can write the card marker/profile; its
+source-image opens remain read-only. It never changes EXIF or an original catalog.
 
-The application selects the plugin and merges JSON/CLI settings before serving.
+The application loads the default config unless overridden and merges JSON/CLI
+settings. Bare invocation registers a new card; the explicit `serve` operation
+starts the server.
+Existing profiles are reused unchanged unless `--register` requests a refresh.
 Plugin-specific configuration lives below `plugins.<name>`. Adding a plugin
 requires a crate implementing the trait, config preparation code, and an
 application registry entry; it does not require changing HTTP or exFAT internals.
 
-`bin/diskproxy` wraps the server with start/status/stop and `hdiutil`. A session
-records the PID and process start time, attachment response, and mounted volume
+`bin/diskproxy` invokes the server with `serve` and wraps it with start/status/stop
+and `hdiutil`. A session records the PID and process start time, attachment response, and mounted volume
 UUID. Busy detach or an identity mismatch leaves the server alive. Existing
 sessions from the original pmp-card launcher can still be stopped through its
 compatibility identity check. A single managed session is supported at a time.

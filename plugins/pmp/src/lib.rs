@@ -1,6 +1,6 @@
 //! Photo Mechanic Plus incremental-ingest policy for diskproxy.
 use anyhow::{Context, Result, ensure};
-use chrono::{FixedOffset, LocalResult, TimeZone};
+use chrono::{FixedOffset, Local, LocalResult, TimeZone};
 use chrono_tz::Tz;
 use diskproxy_core::{Plugin, Source, error_status};
 use rustix::fs::OFlags;
@@ -27,7 +27,19 @@ pub struct Config {
     pub check: bool,
     #[serde(skip)]
     pub register: bool,
+    #[serde(skip)]
+    pub register_if_new: bool,
 }
+/// Distinct startup outcome used by the launcher to request card setup succinctly.
+#[derive(Debug)]
+pub struct RegistrationRequired;
+impl std::fmt::Display for RegistrationRequired {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "first registration required; run diskproxy-server")
+    }
+}
+impl std::error::Error for RegistrationRequired {}
+
 pub struct Prepared {
     pub source: Arc<Source>,
     pub plugin: Arc<dyn Plugin>,
@@ -261,7 +273,21 @@ impl Plugin for PmpPlugin {
 }
 
 pub fn prepare(args: Config) -> Result<Prepared> {
-    let source = Arc::new(Source::new(&args.source)?);
+    for offset in [&args.source_offset, &args.target_offset]
+        .into_iter()
+        .flatten()
+    {
+        parse_offset(offset)?;
+    }
+    if let Some(zone) = &args.target_zone {
+        zone.parse::<Tz>().context("invalid target timezone")?;
+    }
+    let source = Arc::new(Source::new(&args.source).with_context(|| {
+        format!(
+            "cannot open card source {}; mount the card or supply another source path",
+            args.source.display()
+        )
+    })?);
     let store = profiles::Store::new(&args.source, args.profiles_dir.clone());
     let identity = store.identity(&args.source)?;
     let saved = store.load(&identity.guid)?;
@@ -270,7 +296,13 @@ pub fn prepare(args: Config) -> Result<Prepared> {
         identity.guid.clone(),
         identity.marker.clone(),
     )?;
+    if saved.is_none() && !args.check && !args.register && !args.register_if_new {
+        return Err(RegistrationRequired.into());
+    }
+    let registration = args.register || (args.register_if_new && saved.is_none());
+    let mut source_basis = "verified samples";
     let source = if let Some(source) = &args.source_offset {
+        source_basis = "explicit";
         let explicit = parse_offset(source)?;
         if let Some(profile) = &saved {
             match profile.source(&view) {
@@ -285,8 +317,13 @@ pub fn prepare(args: Config) -> Result<Prepared> {
             }
         }
         explicit
+    } else if let Some(profile) = &saved {
+        profile.source(&view)?
+    } else if registration {
+        source_basis = "current timezone";
+        *Local::now().offset()
     } else {
-        saved.as_ref().context("first registration needs --source-offset for the current card mount; it will be automatic afterward")?.source(&view)?
+        return Err(RegistrationRequired.into());
     };
     view.source = source;
     let default_history = std::env::var_os("HOME")
@@ -344,14 +381,14 @@ pub fn prepare(args: Config) -> Result<Prepared> {
     };
     let (visible_images, hidden_images) = view.image_counts()?;
     let profile_path = store.path.join(".pmp-ingest-proxy.json");
-    if args.register {
-        let _lock = store.lock()?;
-        store.save(&identity, &profiles::Profile::capture(&view)?)?;
-    }
-    if saved.is_none() && !args.check && !args.register {
+    if registration {
+        ensure!(
+            visible_images + hidden_images > 0,
+            "card has no DNG/JPG photos to sample; take photos before registration"
+        );
         let _lock = store.lock()?;
         ensure!(
-            store.load(&identity.guid)?.is_none(),
+            saved.is_some() || store.load(&identity.guid)?.is_none(),
             "profile was registered concurrently; restart to load it"
         );
         store.save(&identity, &profiles::Profile::capture(&view)?)?;
@@ -359,8 +396,8 @@ pub fn prepare(args: Config) -> Result<Prepared> {
     let info = serde_json::json!({"plugin": "pmp", "guid": view.guid, "source": args.source,
         "visible_images": visible_images, "hidden_images": hidden_images,
         "history_records": history_records, "history_snapshot": history_path,
-        "source_offset": source.to_string(), "source_basis": if args.source_offset.is_some() { "explicit" } else { "verified samples" },
-        "target": target_label, "profile": profile_path, "profile_saved": args.register});
+        "source_offset": source.to_string(), "source_basis": source_basis,
+        "target": target_label, "profile": profile_path, "profile_saved": registration});
     Ok(Prepared {
         source: Arc::clone(&view.root),
         plugin: Arc::new(view),

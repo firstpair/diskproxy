@@ -3,7 +3,10 @@ use std::process::Command;
 use std::time::{Duration, UNIX_EPOCH};
 
 fn run(args: &[&str]) -> std::process::Output {
+    let defaults = tempfile::NamedTempFile::new().unwrap();
+    fs::write(defaults.path(), b"{}").unwrap();
     Command::new(env!("CARGO_BIN_EXE_diskproxy-server"))
+        .env("DISKPROXY_CONFIG", defaults.path())
         .args(args)
         .output()
         .unwrap()
