@@ -49,3 +49,8 @@ The old pmp-ingest-proxy implementation originated in the mechanic workspace.
 This repository extracts the reusable source/transport engine and preserves its
 PMP-specific behavior as a plugin. User catalog audits and private working data
 remain in mechanic, outside this repository.
+
+Implementation details and setup steps: [Writing a plugin](plugins.md).
+The [hide example](../examples/hide-plugin/README.md) is compiled in the workspace
+but not registered by default; its tested patch demonstrates all CLI integration
+changes without mixing application policy into the core.

@@ -45,6 +45,7 @@ positional path. No manual server launch or URL copying is required.
 
 ## First registration
 
+The card must contain at least one supported DNG/JPG image for fingerprint sampling.
 Finish and review any intended EXIF corrections before sampling the card. Once
 the PMP use case is your default config, insert a new card and run:
 

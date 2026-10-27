@@ -125,7 +125,9 @@ explicit offset overrides. The launcher itself always invokes `serve`.
 Plugins are separate Rust crates linked at build time. Implement the public
 `Plugin` trait and register the policy in the application to add another use
 case. Plugins are trusted code; there is no dynamic plugin ABI or runtime
-sandbox. See [architecture and extension points](docs/architecture.md).
+sandbox. See [architecture and extension points](docs/architecture.md), the
+[step-by-step plugin guide](docs/plugins.md), and a
+[compiled visibility-plugin example](examples/hide-plugin/README.md).
 
 ## Read-only behavior and limits
 
@@ -143,15 +145,20 @@ table folds ASCII letters; non-ASCII case folding is not implemented. Unsupporte
 names and timestamps fail rather than being rewritten. This is a virtual view,
 not a writable storage driver or disk repair tool.
 
+For the implementation story, read [diskproxy and stable camera ingest](docs/diskproxy-blog.md).
+The [transport guide](docs/webdav.md) explains how WebDAV differs from the HTTP
+virtual disk used by the default launcher.
+
 ## Development and verification
 
 ```sh
 cargo test --workspace --locked
 cargo clippy --workspace --all-targets --locked -- -D warnings
 uv run --python 3.13 python -m unittest discover -s tests -p 'test_*.py'
+uv run --python 3.13 python scripts/check-plugin-example.py
 ```
 
 Tests use synthetic sources for profiles, timestamp policies, history filtering,
 HTTP ranges, write rejection, config precedence, and mocked launcher lifecycle.
 A real macOS attach/read/write-rejection/detach smoke test was also performed on
-a synthetic non-camera directory. Python is needed only for the launcher tests.
+a synthetic non-camera directory. Python is needed only for development checks, not the installed tool.

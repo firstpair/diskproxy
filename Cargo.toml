@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/core", "plugins/pmp"]
+members = ["crates/core", "plugins/pmp", "examples/hide-plugin"]
 resolver = "2"
 
 [package]

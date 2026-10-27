@@ -1,0 +1,75 @@
+diff --git a/Cargo.lock b/Cargo.lock
+index ad3efed..e13dbe3 100644
+--- a/Cargo.lock
++++ b/Cargo.lock
+@@ -233,6 +233,7 @@ dependencies = [
+  "anyhow",
+  "clap",
+  "diskproxy-core",
++ "diskproxy-hide-example",
+  "diskproxy-pmp",
+  "roxmltree",
+  "serde",
+diff --git a/Cargo.toml b/Cargo.toml
+index 8f57da5..08d1c86 100644
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -19,6 +19,7 @@ serde = { version = "1", features = ["derive"] }
+ serde_json = "1"
+ diskproxy-core = { path = "crates/core" }
+ diskproxy-pmp = { path = "plugins/pmp" }
++diskproxy-hide-example = { path = "examples/hide-plugin" }
+ 
+ [dev-dependencies]
+ tempfile = "3"
+diff --git a/src/main.rs b/src/main.rs
+index 3d9e629..e661a48 100644
+--- a/src/main.rs
++++ b/src/main.rs
+@@ -11,6 +11,7 @@ enum PluginName {
+     #[default]
+     Passthrough,
+     Pmp,
++    Hide,
+ }
+ #[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, ValueEnum, PartialEq)]
+ #[serde(rename_all = "lowercase")]
+@@ -160,6 +161,11 @@ fn run() -> Result<()> {
+                 let _: diskproxy_pmp::Config =
+                     serde_json::from_value(value.clone()).context("invalid plugins.pmp config")?;
+             }
++            "hide" => {
++                let options: diskproxy_hide_example::Config =
++                    serde_json::from_value(value.clone()).context("invalid plugins.hide config")?;
++                diskproxy_hide_example::Hide::new(options)?;
++            }
+             _ => bail!("unknown plugin configuration: {name}"),
+         }
+     }
+@@ -192,6 +198,26 @@ fn run() -> Result<()> {
+                     "DiskProxy",
+                 )
+             }
++            PluginName::Hide => {
++                ensure!(
++                    !register
++                        && args.source_offset.is_none()
++                        && args.target_offset.is_none()
++                        && args.target_zone.is_none()
++                        && args.history.is_none()
++                        && args.profiles_dir.is_none(),
++                    "registration/PMP options require the PMP plugin; use diskproxy-server serve for this policy"
++                );
++                let options: diskproxy_hide_example::Config =
++                    serde_json::from_value(config.plugins.remove("hide").unwrap_or(json!({})))
++                        .context("invalid plugins.hide config")?;
++                (
++                    Arc::new(Source::new(&source_path)?),
++                    Arc::new(diskproxy_hide_example::Hide::new(options)?),
++                    json!({"plugin":"hide", "source":source_path}),
++                    "DiskProxy",
++                )
++            }
+             PluginName::Pmp => {
+                 let mut options: diskproxy_pmp::Config =
+                     serde_json::from_value(config.plugins.remove("pmp").unwrap_or(json!({})))

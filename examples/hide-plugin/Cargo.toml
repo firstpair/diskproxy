@@ -1,0 +1,13 @@
+[package]
+name = "diskproxy-hide-example"
+version = "0.2.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+anyhow = "1"
+serde = { version = "1", features = ["derive"] }
+diskproxy-core = { path = "../../crates/core" }
+
+[dev-dependencies]
+tempfile = "3"

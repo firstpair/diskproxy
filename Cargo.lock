@@ -256,6 +256,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "diskproxy-hide-example"
+version = "0.2.0"
+dependencies = [
+ "anyhow",
+ "diskproxy-core",
+ "serde",
+ "tempfile",
+]
+
+[[package]]
 name = "diskproxy-pmp"
 version = "0.2.0"
 dependencies = [
