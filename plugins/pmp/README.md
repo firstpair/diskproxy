@@ -1,5 +1,10 @@
 # PMP incremental-ingest plugin
 
+An application-policy plugin for [diskproxy](../../README.md). This guide covers
+the Photo Mechanic Plus use case; general installation, transport, and CLI
+configuration are described in the main README. Run repository-relative commands
+from the diskproxy checkout root.
+
 Photo Mechanic Plus (PMP) records a camera card's ingested paths, byte sizes, and
 filesystem modification times in a per-card incremental history. On inspected
 Leica M10-R exFAT cards, modification times had no valid timezone offset. macOS
@@ -16,13 +21,22 @@ history-filtering policy hides exact previously ingested path/size/mtime matches
 ## Configure once, launch normally
 
 Install with `scripts/install.sh --config configs/pmp.json`. For an already
-registered card:
+registered card, once this is your default config:
 
 ```sh
 diskproxy start
 # In PMP, ingest the mounted volume under Disks.
 diskproxy stop
 ```
+
+The installer preserves any existing default config. If a generic config was
+already installed, use `pmp-card start` or select the PMP config explicitly:
+
+```sh
+diskproxy --config ~/.config/diskproxy/pmp.json start
+```
+
+For a new card, complete first registration below before starting an ingest.
 
 `diskproxy` without a subcommand also starts; `diskproxy status` shows the session.
 `pmp-card` and its start/status/stop subcommands continue to work, selecting
@@ -89,6 +103,13 @@ diskproxy start --set plugins.pmp.hide_ingested=true
 diskproxy-server --config configs/pmp.json --check \
   --set plugins.pmp.hide_ingested=true
 ```
+
+The legacy `pmp-ingest-proxy` command is also retained as a shim to
+`diskproxy-server --plugin pmp`. Familiar flags `--source-offset`,
+`--target-offset`, `--target-zone`, `--history`, and `--profiles-dir` override
+the corresponding plugin settings directly. They require the PMP plugin.
+`--mode filtered` is the low-level compatibility alias for filtered WebDAV;
+set `hide_ingested` to filter a disk-mode view through the normal launcher.
 
 Supported plugin keys:
 

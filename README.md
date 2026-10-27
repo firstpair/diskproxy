@@ -1,17 +1,41 @@
 # diskproxy
 
-A read-only view of a directory, served as a virtual exFAT disk or WebDAV.
-Source bytes are streamed on demand; disk metadata is generated in memory.
-No full disk image, photo staging copy, FUSE driver, or Python runtime is needed.
+Present a directory as a **read-only virtual exFAT disk or WebDAV share**, with
+application-specific plugins controlling which files are visible and how their
+timestamps are presented. Source bytes stream on demand; disk metadata is built
+in memory. No full disk-image copy, FUSE driver, or Python runtime is needed.
 
-Application policies are plugins. The included **PMP plugin** makes Photo
-Mechanic Plus incremental ingest stable across timezone changes and can hide
-files already present in its ingest history. The default **passthrough** view
-works with ordinary directory trees and arbitrary regular file types.
+The default **passthrough** policy exposes ordinary directory trees and arbitrary
+regular file types. The included [Photo Mechanic Plus plugin](plugins/pmp/README.md)
+provides stable camera-card ingest across timezone changes and optional hiding
+of already-ingested files. Its setup and workflow are documented separately.
 
-## Start, status, stop
+## Quick start on macOS
 
-On macOS, after installing and selecting a config:
+Install Rust/Cargo, then:
+
+```sh
+git clone https://github.com/firstpair/diskproxy.git
+cd diskproxy
+scripts/install.sh --config configs/passthrough.json
+
+diskproxy start /absolute/path/to/folder
+# Use the mounted /Volumes/DiskProxy volume in your application.
+diskproxy stop
+```
+
+The installer places the launcher and `diskproxy-server` binary in `~/bin`;
+ensure that directory is on PATH. It seeds `~/.config/diskproxy/config.json`
+from the selected example only if the default config does not already exist.
+Existing settings are preserved. For the camera-card use case, follow the
+[PMP plugin guide](plugins/pmp/README.md) instead.
+
+The launcher uses zsh, `hdiutil`, `diskutil`, `plutil`, `ps`, and `nohup`, included
+with macOS. The Rust server builds on Unix; automatic disk mounting requires macOS.
+
+## Everyday commands
+
+Once a config supplies your source directory and plugin:
 
 ```sh
 diskproxy                    # same as diskproxy start
@@ -20,130 +44,96 @@ diskproxy status
 diskproxy stop
 ```
 
-Start launches the server in the background, attaches its read-only virtual disk
-with `hdiutil`, and prints the mounted volume. Stop detaches first, then stops
-the server. If the disk is busy, the server stays running. No URL copying or
-second Terminal is needed. The server does not quit when Terminal closes.
+Start launches the server in the background, attaches its read-only disk, and
+prints the mount location. Stop detaches first, then stops the server. A busy
+disk stays served until it can be detached. Closing Terminal does not stop it.
+No manual URL copying or second Terminal is required.
+
+A positional path overrides the configured source. Config files can be selected
+before or after `start`:
 
 ```sh
-diskproxy start '/Volumes/OTHER CARD'
+diskproxy start /another/folder
 diskproxy --config ~/my-view.json start
 diskproxy start --config ~/my-view.json
-diskproxy start --set plugins.pmp.hide_ingested=true
+diskproxy start --set label=MyDisk
 ```
-
-`pmp-card`, `pmp-card start`, `pmp-card status`, and `pmp-card stop` remain
-compatibility entry points selecting the PMP config. Saved card profiles,
-markers, GUIDs, and ingest histories retain their original format and names.
-
-## Build and install
-
-Rust/Cargo is needed to build. The macOS launcher uses zsh, `hdiutil`,
-`diskutil`, `plutil`, `ps`, and `nohup`, all included with macOS.
-
-```sh
-cargo test --workspace --locked
-scripts/install.sh --config configs/pmp.json
-```
-
-The installer places `diskproxy`, `diskproxy-server`, and `pmp-card` in `~/bin`,
-plus a `pmp-ingest-proxy` compatibility shim for old low-level commands.
-It seeds `~/.config/diskproxy/config.json` from the chosen config only if absent,
-and preserves existing config files. Ensure `~/bin` is on PATH. To use a generic
-folder instead, install with `--config configs/passthrough.json`, then:
-
-```sh
-diskproxy start /path/to/folder
-```
-
-See [the PMP plugin guide](plugins/pmp/README.md) before first card registration.
 
 ## Configuration
 
-Example PMP use case (`~/.config/diskproxy/config.json`):
+The default config is `~/.config/diskproxy/config.json`. A general-purpose example:
 
 ```json
 {
-  "source": "/Volumes/LEICA M",
-  "plugin": "pmp",
+  "source": "/absolute/path/to/folder",
+  "plugin": "passthrough",
   "mode": "disk",
-  "label": "PMP Pacific",
-  "plugins": {
-    "pmp": {
-      "hide_ingested": false
-    }
-  }
+  "label": "DiskProxy",
+  "port": 0,
+  "plugins": {}
 }
 ```
 
-The shared config keys are `source`, `plugin`, `mode`, `label`, and `port`.
-`plugins.<name>` holds that plugin's definitions. Config files are JSON; paths
-are literal (use absolute paths, not `~` within JSON). The default label is
-`DiskProxy` for passthrough and `PMP Pacific` for the PMP compatibility use case.
-A label has at most 11 UTF-16 code units.
+| Key | Meaning |
+| --- | --- |
+| `source` | Directory to expose; an explicit positional path overrides it. |
+| `plugin` | Registered policy: `passthrough` or `pmp`. |
+| `mode` | Low-level transport: `disk` or `webdav`; the lifecycle launcher always mounts disk mode. |
+| `label` | Virtual volume name, up to 11 UTF-16 code units. |
+| `port` | Localhost HTTP port; `0` selects an available port. |
+| `plugins.<name>` | Settings specific to that plugin; see its own guide. |
 
-Precedence: **config file → `--set KEY=VALUE` → explicit flags**. Override values
-are parsed as JSON when possible, otherwise strings. Unknown config fields are
-errors. Examples:
+JSON paths are literal: use absolute paths, not `~` within a config file.
+Precedence is **config file → `--set KEY=VALUE` → explicit flags**. Overrides
+parse values as JSON when possible, otherwise as strings. Unknown config keys
+are errors. Plugin settings accept the same dotted-key overrides; for example:
 
 ```sh
 diskproxy start --config configs/pmp.json \
   --set plugins.pmp.hide_ingested=true
-
-diskproxy start --set label=MyCard
-
-diskproxy-server --config configs/pmp.json --check
 ```
 
-Familiar PMP flags are aliases into plugin settings: `--source-offset`,
-`--target-offset`, `--target-zone`, `--history`, and `--profiles-dir`.
-They require the PMP plugin. Neither a config file nor a CLI override may
-silently change a registered card's saved timestamp convention.
-
-The lifecycle launcher mounts disk mode. For headless service, diagnostics, or
-WebDAV, use the server directly:
+For headless service, WebDAV, or a read-only configuration check, use the server
+directly. Its startup output is JSON containing a random-capability URL:
 
 ```sh
 diskproxy-server /path/to/folder --plugin passthrough --mode webdav
-diskproxy-server --config configs/pmp-filtered.json --check
+diskproxy-server --config ~/my-view.json --check
 ```
 
-`--mode filtered` remains a compatibility alias for PMP-filtered WebDAV;
-`plugins.pmp.hide_ingested=true` enables filtering with either transport.
-Startup output is JSON and includes the random-capability URL. This is the
-low-level interface, not an extra step for normal launcher use.
+## Plugins and architecture
 
-## Architecture and guarantees
+- **[Core engine](crates/core):** read-only source descriptors, policy hooks,
+  HTTP byte ranges, WebDAV, and virtual exFAT streaming. No PMP-specific policy.
+- **[PMP plugin](plugins/pmp/README.md):** Photo Mechanic Plus camera layout,
+  portable card profiles, timestamp normalization, and ingest-history filtering.
+  Existing `pmp-card` commands and profiles remain compatible.
+- **Application:** configuration, command-line overrides, and plugin selection.
+- **Launcher:** background process lifecycle and macOS disk attachment. The
+  volume UUID is checked before detaching a managed disk.
 
-- [`diskproxy-core`](crates/core): pinned read-only source descriptors; no
-  symlink traversal; plugin visibility/timestamp/identity hooks; HTTP byte
-  ranges, WebDAV, and virtual exFAT streaming.
-- [`diskproxy-pmp`](plugins/pmp): camera layout, GUID markers, portable profiles,
-  timezone normalization, ingest-history parsing, and hiding known images.
-- Application: JSON configuration, CLI overrides, and plugin selection.
-- macOS launcher: background server lifecycle and disk attachment, independent
-  of the selected policy. Active disks are checked by volume UUID before detach.
+Plugins are separate Rust crates linked at build time. Implement the public
+`Plugin` trait and register the policy in the application to add another use
+case. Plugins are trusted code; there is no dynamic plugin ABI or runtime
+sandbox. See [architecture and extension points](docs/architecture.md).
 
-Plugins are separate Rust crates linked at build time. There is no dynamic
-library ABI, executable-plugin protocol, or runtime sandbox. To add a policy,
-implement the public `Plugin` trait and register it in the application; see
-[the architecture notes](docs/architecture.md).
+## Read-only behavior and limits
 
-HTTP binds only to localhost and uses a fresh 192-bit capability token. HTTP
-mutation methods are rejected. Source descriptors are opened `O_RDONLY` and
-`O_NOFOLLOW`; only regular files/directories are served. The PMP setup code
-can write its marker/profile, but the core never writes to the source. Do not
-edit a source while its disk view is mounted: size/mtime changes cause disk
-reads to fail; detach and restart after an intended source edit.
+HTTP binds only to localhost with a fresh 192-bit capability token. Mutation
+methods are rejected. Source descriptors use `O_RDONLY` and `O_NOFOLLOW`; symlinks
+are not traversed, and only regular files/directories are exposed. The core
+never writes to a source. Plugin setup may have its own explicitly documented
+writes, such as registering a camera-card profile.
 
-The core builds on Unix; the one-command mounting workflow requires macOS.
-Generated exFAT timestamps have explicit UTC offsets. Disk mode requires UTF-8
-names compatible with exFAT and timestamp years 1980–2107. The current exFAT
-upcase table folds ASCII letters; non-ASCII case folding is not implemented.
-Non-UTF-8 names and unsupported timestamps fail rather than being rewritten.
-This is a read-only virtual view, not a writable storage driver or disk repair tool.
+Keep a source unchanged while its disk view is mounted. A source extent's
+size/mtime changes cause disk reads to fail; detach and restart after intended
+edits. Generated exFAT timestamps have valid UTC offsets. Disk mode requires
+UTF-8, exFAT-compatible names and timestamp years 1980–2107. The current upcase
+table folds ASCII letters; non-ASCII case folding is not implemented. Unsupported
+names and timestamps fail rather than being rewritten. This is a virtual view,
+not a writable storage driver or disk repair tool.
 
-## Verification
+## Development and verification
 
 ```sh
 cargo test --workspace --locked
@@ -151,7 +141,7 @@ cargo clippy --workspace --all-targets --locked -- -D warnings
 uv run --python 3.13 python -m unittest discover -s tests -p 'test_*.py'
 ```
 
-Rust tests use synthetic directories for source safety, profiles and timezone
-changes, history filtering, HTTP ranges, write rejection, and config precedence.
-Launcher tests mock disk utilities; a real macOS attach/read/write-rejection/
-detach smoke test was also performed on a synthetic non-camera directory.
+Tests use synthetic sources for profiles, timestamp policies, history filtering,
+HTTP ranges, write rejection, config precedence, and mocked launcher lifecycle.
+A real macOS attach/read/write-rejection/detach smoke test was also performed on
+a synthetic non-camera directory. Python is needed only for the launcher tests.
