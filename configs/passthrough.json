@@ -1,0 +1,5 @@
+{
+  "plugin": "passthrough",
+  "mode": "disk",
+  "label": "DiskProxy"
+}

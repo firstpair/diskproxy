@@ -1,0 +1,3 @@
+#!/bin/zsh
+# Backward-compatible entry point with the PMP use case selected.
+exec "${DISKPROXY_CLI:-$HOME/bin/diskproxy}" --config "${PMP_CARD_CONFIG:-$HOME/.config/diskproxy/pmp.json}" "$@"

@@ -1,0 +1,11 @@
+{
+  "source": "/Volumes/LEICA M",
+  "plugin": "pmp",
+  "mode": "disk",
+  "label": "PMP Pacific",
+  "plugins": {
+    "pmp": {
+      "hide_ingested": true
+    }
+  }
+}

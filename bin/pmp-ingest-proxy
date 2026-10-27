@@ -1,0 +1,3 @@
+#!/bin/zsh
+# Legacy low-level server interface; all implementation now lives in diskproxy.
+exec "${DISKPROXY_SERVER:-$HOME/bin/diskproxy-server}" --plugin pmp "$@"

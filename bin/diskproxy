@@ -1,0 +1,134 @@
+#!/bin/zsh
+# macOS lifecycle wrapper. All application policy lives in the server plugins.
+set -eu
+setopt NO_NOMATCH
+umask 077
+server=${DISKPROXY_SERVER:-$HOME/bin/diskproxy-server}
+state=${DISKPROXY_STATE_DIR:-${PMP_CARD_STATE_DIR:-$HOME/Library/Caches/diskproxy}}
+# Preserve control of a session created by the former pmp-card launcher.
+if [[ -z ${DISKPROXY_STATE_DIR:-} && -z ${PMP_CARD_STATE_DIR:-} && -d $HOME/Library/Caches/pmp-card/session ]]; then
+  state=$HOME/Library/Caches/pmp-card
+fi
+session=$state/session
+alive() {
+  [[ -f $session/pid && -f $session/birth ]] || return 1
+  local pid=$(<$session/pid)
+  [[ $pid == <-> ]] || return 1
+  local birth=$(ps -p "$pid" -o lstart= 2>/dev/null) || return 1
+  [[ $birth == "$(<$session/birth)" ]]
+}
+stop_session() {
+  [[ -d $session ]] || { print 'No managed proxy is running.'; return; }
+  if [[ -s $session/attach.plist && ! -f $session/device ]]; then
+    print -u2 "Incomplete attachment information; inspect $session/attach.plist before stopping."
+    return 1
+  fi
+  if [[ -f $session/device ]]; then
+    local device=$(<$session/device)
+    if [[ -e $device ]]; then
+      if [[ -f $session/volume-id ]]; then
+        local current=$(diskutil info -plist "$device" | plutil -extract VolumeUUID raw -o - -) || return 1
+        [[ $current == "$(<$session/volume-id)" ]] || {
+          print -u2 'Mounted volume identity changed. Server left running.'; return 1
+        }
+      elif [[ -f $session/mount ]]; then
+        # Compatibility with an existing session from the original PMP launcher.
+        local mount=$(<$session/mount)
+        local guid=$(plutil -extract guid raw -o - "$session/server.json")
+        [[ -f $mount/.pmingest.dat && "$(<$mount/.pmingest.dat)" == $guid ]] || {
+          print -u2 'Mounted card identity could not be verified. Server left running.'; return 1
+        }
+      else
+        print -u2 'Cannot verify the mounted volume. Server left running.'; return 1
+      fi
+      hdiutil detach "$device" || {
+        print -u2 'Detach failed. Server left running; finish using the disk and retry diskproxy stop.'
+        return 1
+      }
+    fi
+  fi
+  if alive; then kill -TERM "$(<$session/pid)"; fi
+  rm -rf -- "$session"
+  print 'Proxy stopped.'
+}
+# --config can precede the command or follow start; remaining options go to the server.
+config_args=()
+explicit_config=0
+while (( $# )); do
+  case $1 in
+    --config)
+      (( $# >= 2 )) || { print -u2 '--config needs a filename'; exit 1; }
+      config_args+=(--config "$2"); explicit_config=1; shift 2 ;;
+    --config=*) config_args+=("$1"); explicit_config=1; shift ;;
+    *) break ;;
+  esac
+done
+case ${1:-} in
+  start) shift ;;
+  stop) stop_session; exit ;;
+  status)
+    if alive; then
+      print "Proxy running (PID $(<$session/pid))."
+      [[ ! -f $session/mount ]] || print "Volume: $(<$session/mount)"
+    else print 'No managed proxy is running.'; fi
+    exit ;;
+  -h|--help)
+    print 'Usage: diskproxy [--config FILE] [start] [SOURCE] [server options]'
+    print '       diskproxy status | stop'
+    print 'Default config: ~/.config/diskproxy/config.json'
+    print 'Plugin overrides: --set plugins.pmp.hide_ingested=true'
+    exit ;;
+esac
+for arg in "$@"; do
+  case $arg in
+    --config|--config=*) explicit_config=1 ;;
+    --mode|--mode=*|--check|--register)
+      print -u2 "Use diskproxy-server directly for $arg; the launcher mounts disk mode."; exit 1 ;;
+  esac
+done
+if (( ! explicit_config )) && [[ -f $HOME/.config/diskproxy/config.json ]]; then
+  config_args+=(--config "$HOME/.config/diskproxy/config.json")
+fi
+[[ -x $server ]] || { print -u2 "Server binary not found: $server"; exit 1; }
+mkdir -p "$state"
+if ! mkdir "$session" 2>/dev/null; then
+  print -u2 'A managed session already exists. Use diskproxy status or diskproxy stop.'; exit 1
+fi
+ready=0
+cleanup() {
+  if (( ! ready )); then
+    print -u2 "Startup failed. Logs: $session"
+    if [[ ! -s $session/attach.plist ]] && alive; then kill -TERM "$(<$session/pid)"; fi
+  fi
+}
+trap cleanup EXIT
+nohup "$server" "${config_args[@]}" "$@" --mode disk > "$session/server.json" 2> "$session/server.err" < /dev/null &!
+pid=$!
+print -r -- "$pid" > "$session/pid"
+ps -p "$pid" -o lstart= > "$session/birth"
+url=''
+for attempt in {1..200}; do
+  url=$(plutil -extract url raw -o - "$session/server.json" 2>/dev/null) && break
+  if ! alive; then cat "$session/server.err" >&2; exit 1; fi
+  sleep 0.1
+ done
+[[ $url == http://127.0.0.1:*/card.img ]] || {
+  cat "$session/server.err" >&2; print -u2 'Server did not provide a disk URL within 20 seconds.'; exit 1
+}
+hdiutil attach -readonly -noautoopen -plist \
+  -imagekey diskimage-class=CRawDiskImage "$url" > "$session/attach.plist"
+mount=''
+for i in {0..31}; do
+  if mount=$(plutil -extract "system-entities.$i.mount-point" raw -o - "$session/attach.plist" 2>/dev/null); then
+    device=$(plutil -extract "system-entities.$i.dev-entry" raw -o - "$session/attach.plist")
+    print -r -- "$device" > "$session/device"
+    print -r -- "$mount" > "$session/mount"
+    break
+  fi
+ done
+[[ -n $mount ]] || { print -u2 'No mounted volume in attach.plist; inspect before stopping.'; exit 1; }
+diskutil info -plist "$device" | plutil -extract VolumeUUID raw -o - - > "$session/volume-id"
+ready=1
+print "Ready: $mount"
+print 'Select this volume in your application (under Disks in PMP).'
+print 'After use: diskproxy stop'
