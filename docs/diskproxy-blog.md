@@ -1,6 +1,6 @@
 # diskproxy and stable camera ingest with virtual disks and WebDAV
 
-![diskproxy illustrated as a brass machine carrying photo prints from a disk toward a camera lens.](https://raw.githubusercontent.com/firstpair/diskproxy/main/cover/diskproxy-cover.png)
+![diskproxy illustrated as a brass machine carrying photo prints from a disk toward a camera lens.](../cover/diskproxy-cover.png)
 
 A camera card I had already ingested started copying from the beginning after
 my laptop changed timezones. The pictures were still there, the card identity
@@ -171,17 +171,7 @@ padding, or the appropriate range of source bytes.
 
 The resulting data path has two possible client interfaces:
 
-```mermaid
-flowchart LR
-    A[Source directory] --> B[Pinned read only descriptors]
-    B --> C[Plugin policy view]
-    C --> D[WebDAV files and properties]
-    C --> E[Generated exFAT image]
-    D --> F[WebDAV client]
-    E --> G[HTTP range reads]
-    G --> H[macOS hdiutil volume]
-    H --> I[Photo Mechanic disk ingest]
-```
+![Source files pass through a shared plugin view to either WebDAV or an HTTP-backed exFAT volume.](diagrams/diskproxy-transports.png)
 
 The virtual exFAT entries contain valid UTC offsets. The policy determines the
 epoch timestamp; the disk generator encodes it in UTC. This removes the unknown-

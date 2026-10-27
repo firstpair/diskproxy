@@ -1,0 +1,9 @@
+flowchart TB
+    A[Source directory] --> B[Pinned read only descriptors]
+    B --> C[Plugin policy view]
+    C --> D[WebDAV files and properties]
+    C --> E[Generated exFAT image]
+    D --> F[WebDAV client]
+    E --> G[HTTP range reads]
+    G --> H[macOS hdiutil volume]
+    H --> I[Photo Mechanic disk ingest]
