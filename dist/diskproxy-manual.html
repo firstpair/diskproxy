@@ -155,8 +155,8 @@ and no kernel extension, FUSE driver or Python runtime is needed.</p>
 developers who want to adapt it. It covers installation, everyday
 commands, every configuration key, the three transports, writable views,
 two complete workflows, writing a plugin, the internal architecture,
-limits and troubleshooting. The <a href="https://github.com/firstpair/diskproxy/blob/f617e26f0daf2cf8da67da5fd3a4b656ee7862cf/README.md">README</a>
-is the short version; the <a href="https://github.com/firstpair/diskproxy/blob/f617e26f0daf2cf8da67da5fd3a4b656ee7862cf/docs/diskproxy-blog.md">project
+limits and troubleshooting. The <a href="https://github.com/firstpair/diskproxy/blob/d6467a972004a4e45bb451de1e646f8a015475c5/README.md">README</a>
+is the short version; the <a href="https://github.com/firstpair/diskproxy/blob/d6467a972004a4e45bb451de1e646f8a015475c5/docs/blog/diskproxy/post.md">project
 story</a> explains how the design came about.</p>
 <h2 data-number="1.1" id="what-diskproxy-is-for"><span class="header-section-number">1.1</span> What diskproxy is for</h2>
 <p>diskproxy solves one general problem: an application expects files to
@@ -490,7 +490,7 @@ and applications that work with folders rather than disks:</p>
 <code>http://127.0.0.1:PORT/TOKEN/</code>; treat the URL as a password.
 It implements <code>OPTIONS</code>, <code>PROPFIND</code> with depth 0
 or 1, <code>GET</code> and <code>HEAD</code> with single byte ranges,
-and rejects every other method with <code>403</code>. The <a href="https://github.com/firstpair/diskproxy/blob/f617e26f0daf2cf8da67da5fd3a4b656ee7862cf/docs/webdav.md">transport
+and rejects every other method with <code>403</code>. The <a href="https://github.com/firstpair/diskproxy/blob/d6467a972004a4e45bb451de1e646f8a015475c5/docs/webdav.md">transport
 guide</a> lists the supported properties and limits.</p>
 <h2 data-number="1.6" id="writable-views"><span class="header-section-number">1.6</span> Writable views</h2>
 <p>Some applications write metadata into the files they show: Photo
@@ -578,7 +578,7 @@ which is how <code>diskproxy stop</code> ends it, it passes everything
 still pending before exiting.</p>
 <h2 data-number="1.7" id="workflow-camera-card-ingest-with-photo-mechanic-plus"><span class="header-section-number">1.7</span> Workflow: camera-card ingest
 with Photo Mechanic Plus</h2>
-<p>This is the workflow diskproxy was first written for. The <a href="https://github.com/firstpair/diskproxy/blob/f617e26f0daf2cf8da67da5fd3a4b656ee7862cf/plugins/pmp/README.md">PMP
+<p>This is the workflow diskproxy was first written for. The <a href="https://github.com/firstpair/diskproxy/blob/d6467a972004a4e45bb451de1e646f8a015475c5/plugins/pmp/README.md">PMP
 guide</a> is the complete reference.</p>
 <h3 data-number="1.7.1" id="the-problem"><span class="header-section-number">1.7.1</span> The problem</h3>
 <p>Photo Mechanic Plus records each ingested file’s path, size and
@@ -631,7 +631,7 @@ ingested files.</p>
 <h2 data-number="1.8" id="workflow-a-photo-library-served-from-its-previews"><span class="header-section-number">1.8</span> Workflow: a photo library
 served from its previews</h2>
 <p>The <code>previews</code> plugin builds a browsable library out of
-files that already exist. Its <a href="https://github.com/firstpair/diskproxy/blob/f617e26f0daf2cf8da67da5fd3a4b656ee7862cf/plugins/previews/README.md">guide</a>
+files that already exist. Its <a href="https://github.com/firstpair/diskproxy/blob/d6467a972004a4e45bb451de1e646f8a015475c5/plugins/previews/README.md">guide</a>
 is the complete reference; this section walks through a whole setup.</p>
 <h3 data-number="1.8.1" id="the-idea"><span class="header-section-number">1.8.1</span> The idea</h3>
 <p>Suppose your originals are offline, but you have two smaller things
@@ -831,8 +831,8 @@ application can read it.</p>
 trait from <code>diskproxy-core</code> and is linked into the
 application at build time. There is no dynamic loading: adding a plugin
 means adding a crate and registering it in <code>src/main.rs</code>. The
-<a href="https://github.com/firstpair/diskproxy/blob/f617e26f0daf2cf8da67da5fd3a4b656ee7862cf/docs/plugins.md">plugin
-guide</a> gives every step, and the <a href="https://github.com/firstpair/diskproxy/blob/f617e26f0daf2cf8da67da5fd3a4b656ee7862cf/examples/hide-plugin/README.md">hide
+<a href="https://github.com/firstpair/diskproxy/blob/d6467a972004a4e45bb451de1e646f8a015475c5/docs/plugins.md">plugin
+guide</a> gives every step, and the <a href="https://github.com/firstpair/diskproxy/blob/d6467a972004a4e45bb451de1e646f8a015475c5/examples/hide-plugin/README.md">hide
 example</a> is a complete, compiled reference with a patch that
 registers it.</p>
 <h3 data-number="1.9.1" id="the-trait"><span class="header-section-number">1.9.1</span> The trait</h3>
