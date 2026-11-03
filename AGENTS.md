@@ -23,3 +23,9 @@ Run `cargo test --workspace --locked`, `cargo clippy --workspace --all-targets
 Python helper tests can run with `uv run --python 3.13 python ...`.
 Never commit local config, card profiles, logs, photo data, or personal catalog
 inventory. Repository config examples must be generic.
+
+# Publication
+
+The manual, blog post and book package are published through First Pair. Follow
+`FIRSTPAIR.md` and `~/src/firstpair/AGENTS.md`; keep `docs/diskproxy-manual.md`,
+the README and the plugin guides consistent when behavior changes.

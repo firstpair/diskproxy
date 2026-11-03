@@ -1,0 +1,11 @@
+title: The diskproxy Manual
+subtitle: Virtual disks, NFS and WebDAV views that never write to the source
+author: FirstPair contributors
+language: en-US
+lang: en-US
+publisher: First Pair Press
+rights: Copyright 2026 FirstPair contributors. MIT licensed.
+title_stem: diskproxy-manual
+cover_image: cover/diskproxy-cover.png
+headboard_image: cover/diskproxy-cover.png
+description: A complete guide to diskproxy, from everyday commands and configuration to writable views, camera-card ingest, preview libraries and writing plugins.
