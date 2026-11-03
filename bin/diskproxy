@@ -20,9 +20,53 @@ alive() {
 }
 stop_session() {
   [[ -d $session ]] || { print 'No managed proxy is running.'; return; }
+  if [[ -f $session/nfs-mount ]]; then
+    local nmount=$(<$session/nfs-mount)
+    # Plain unmount(2): umount(8) and diskutil wait minutes on rpcbind afterwards.
+    if mount | grep -qF " on $nmount ("; then
+      "$server" unmount "$nmount" || {
+        print -u2 "Unmount of $nmount failed; close files on it and retry diskproxy stop."
+        return 1
+      }
+    fi
+    if alive; then
+      local spid=$(<$session/pid) i
+      kill -TERM "$spid"  # the server captures pending writes, then exits
+      for i in {1..300}; do ps -p "$spid" > /dev/null 2>&1 || break; sleep 0.1; done
+    fi
+    rmdir -- "$nmount" 2>/dev/null || true
+    rm -rf -- "$session"
+    print 'Proxy stopped.'
+    return
+  fi
   if [[ -s $session/attach.plist && ! -f $session/device ]]; then
     print -u2 "Incomplete attachment information; inspect $session/attach.plist before stopping."
     return 1
+  fi
+  if [[ -f $session/harvest.pid ]]; then
+    # Writable session: let the ratings harvester finish its last pass first.
+    local hp=$(<$session/harvest.pid)
+    if [[ $(ps -p "$hp" -o lstart= 2>/dev/null) == "$(<$session/harvest.birth)" ]]; then
+      : > "$session/harvest.stop"
+      local i
+      for i in {1..1200}; do
+        ps -p "$hp" > /dev/null 2>&1 || break
+        sleep 0.1
+      done
+      if ps -p "$hp" > /dev/null 2>&1; then
+        print -u2 "Ratings harvest still running (PID $hp); see $session/harvest.log and retry."
+        return 1
+      fi
+    elif [[ -f $session/mount && -d $(<$session/mount) ]]; then
+      # The harvester died: walk the volume once so no rating is lost.
+      print -u2 'Ratings harvester was not running; checking the volume for changes...'
+      local -a hargs=(${(0)"$(<$session/harvest.args)"})
+      "$server" harvest "${hargs[@]}" --volume "$(<$session/mount)" \
+        --since "$(<$session/mounted-at)" --once >> "$session/harvest.log" 2>&1 || {
+        print -u2 "Ratings check failed; disk left mounted. See $session/harvest.log."
+        return 1
+      }
+    fi
   fi
   if [[ -f $session/device ]]; then
     local device=$(<$session/device)
@@ -103,13 +147,43 @@ cleanup() {
   fi
 }
 trap cleanup EXIT
-nohup "$server" serve "${config_args[@]}" "$@" --mode disk > "$session/server.json" 2> "$session/server.err" < /dev/null &
+# The config's mode chooses the transport: nfs mounts a writable NFS view;
+# anything else mounts the read-only (or shadow-writable) disk image.
+config_file=''
+for (( i = 1; i <= ${#config_args}; i++ )); do
+  case $config_args[i] in
+    --config) config_file=$config_args[i+1] ;;
+    --config=*) config_file=${config_args[i]#--config=} ;;
+  esac
+done
+mode=disk
+[[ -n $config_file && $(plutil -extract mode raw -o - "$config_file" 2>/dev/null) == nfs ]] && mode=nfs
+if [[ $mode == nfs ]]; then
+  nohup "$server" serve "${config_args[@]}" "$@" --overlay "$session/overlay" \
+    > "$session/server.json" 2> "$session/server.err" < /dev/null &
+else
+  nohup "$server" serve "${config_args[@]}" "$@" --mode disk > "$session/server.json" 2> "$session/server.err" < /dev/null &
+fi
 pid=$!
 print -r -- "$pid" > "$session/pid"
 ps -p "$pid" -o lstart= > "$session/birth" || true
 url=''
-for attempt in {1..200}; do
-  url=$(plutil -extract url raw -o - "$session/server.json" 2>/dev/null) && break
+# Large trees take minutes to scan; wait while the server is alive (15 min cap).
+for attempt in {1..9000}; do
+  if (( attempt % 20 == 0 )); then
+    # Show the server's latest scan progress line, updating in place on a terminal.
+    line=$(grep '^progress: ' "$session/server.err" 2>/dev/null | tail -1)
+    line=${line#progress: }
+    if [[ -n $line && $line != "${last_progress:-}" ]]; then
+      last_progress=$line
+      if [[ -t 2 ]]; then printf '\r\e[K%s' "Scanning: $line" >&2; else print -u2 "Scanning: $line"; fi
+    fi
+  fi
+  if [[ $mode == nfs ]]; then
+    url=$(plutil -extract nfs_port raw -o - "$session/server.json" 2>/dev/null) && break
+  else
+    url=$(plutil -extract url raw -o - "$session/server.json" 2>/dev/null) && break
+  fi
   if ! alive; then
     exit_code=0
     wait "$pid" 2>/dev/null || exit_code=$?
@@ -147,10 +221,32 @@ for attempt in {1..200}; do
   fi
   sleep 0.1
  done
+[[ -n ${last_progress:-} && -t 2 ]] && print -u2
+if [[ $mode == nfs ]]; then
+  [[ $url == <-> ]] || { cat "$session/server.err" >&2; print -u2 'Server did not report an NFS port.'; exit 1; }
+  mount=$(plutil -extract mountpoint raw -o - "$session/server.json")
+  mkdir -p -- "$mount"
+  [[ -z $(ls -A -- "$mount") ]] || { print -u2 "Mount point $mount is not empty."; exit 1; }
+  # nolocks: the server has no lock manager; locking stays local to this Mac.
+  mount_nfs -o vers=3,tcp,port=$url,mountport=$url,nolocks,soft,intr,timeo=100,retrans=5 \
+    127.0.0.1:/ "$mount" || { print -u2 "mount_nfs failed for $mount"; exit 1; }
+  print -r -- "$mount" > "$session/mount"
+  print -r -- "$mount" > "$session/nfs-mount"
+  ready=1
+  disown 2>/dev/null || true
+  print "Ready: $mount"
+  print 'Writable NFS view: your changes go to the session overlay, never to the source.'
+  print 'After use: diskproxy stop'
+  exit 0
+fi
 [[ $url == http://127.0.0.1:*/card.img ]] || {
-  cat "$session/server.err" >&2; print -u2 'Server did not provide a disk URL within 20 seconds.'; exit 1
+  cat "$session/server.err" >&2; print -u2 'Server did not provide a disk URL within 15 minutes.'; exit 1
 }
-hdiutil attach -readonly -noautoopen -plist \
+writable=$(plutil -extract writable raw -o - "$session/server.json" 2>/dev/null || true)
+attach_mode=(-readonly)
+# Writable: client writes go to a shadow file in the session, never to the source.
+[[ $writable == true ]] && attach_mode=(-shadow "$session/disk.shadow")
+hdiutil attach "${attach_mode[@]}" -noautoopen -plist \
   -imagekey diskimage-class=CRawDiskImage "$url" > "$session/attach.plist"
 mount=''
 for i in {0..31}; do
@@ -163,8 +259,17 @@ for i in {0..31}; do
  done
 [[ -n $mount ]] || { print -u2 'No mounted volume in attach.plist; inspect before stopping.'; exit 1; }
 diskutil info -plist "$device" | plutil -extract VolumeUUID raw -o - - > "$session/volume-id"
+if [[ $writable == true ]]; then
+  date +%s > "$session/mounted-at"
+  print -rN -- "${config_args[@]}" "$@" > "$session/harvest.args"
+  nohup "$server" harvest "${config_args[@]}" "$@" --volume "$mount" \
+    --stop-file "$session/harvest.stop" > "$session/harvest.log" 2>&1 < /dev/null &
+  print -r -- $! > "$session/harvest.pid"
+  ps -p $! -o lstart= > "$session/harvest.birth" || true
+fi
 ready=1
 disown 2>/dev/null || true
 print "Ready: $mount"
 print 'Select this volume in your application (under Disks in PMP).'
+[[ $writable == true ]] && print 'Writable: changes go to a shadow file; ratings are harvested every minute.'
 print 'After use: diskproxy stop'

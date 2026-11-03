@@ -7,8 +7,11 @@ use std::io::{self, Cursor, Read, Seek, SeekFrom};
 use std::sync::Arc;
 use tiny_http::{Header, Request, Response, Server, StatusCode};
 mod disk;
+pub mod harvest;
+mod nfs;
 mod view;
-pub use view::{Passthrough, Plugin, Source, View, validate_label};
+pub use nfs::serve_nfs;
+pub use view::{Passthrough, Piece, Plugin, Source, Stamp, View, validate_label};
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Mode {
     Disk,
@@ -132,7 +135,7 @@ fn prop_response(
                 "application/octet-stream"
             }
             .into(),
-            "getetag" => escape(&meta.etag),
+            "getetag" => escape(&meta.etag()),
             "resourcetype" if meta.directory => "<D:collection/>".into(),
             _ => String::new(),
         };
@@ -292,7 +295,7 @@ fn handle(
                 .header("Content-Type", "application/xml; charset=utf-8"))
         }
         "GET" | "HEAD" => {
-            let mut file = view.open(&parts)?;
+            let file = view.open(&parts)?;
             let meta = view.metadata(&parts, &file)?;
             if meta.directory {
                 return Ok(Reply::empty(405));
@@ -306,16 +309,15 @@ fn handle(
                     );
                 }
             };
-            file.seek(SeekFrom::Start(start))?;
             let mut reply = Reply {
                 code: if range.is_some() { 206 } else { 200 },
                 headers: vec![],
-                body: Box::new(file.take(length)),
+                body: layout_reader(view, &parts, &meta.layout, start, length)?,
                 length: usize::try_from(length)?,
             }
             .header("Content-Type", "application/octet-stream")
             .header("Last-Modified", http_date(meta.mtime)?)
-            .header("ETag", &meta.etag)
+            .header("ETag", meta.etag())
             .header("Accept-Ranges", "bytes");
             if range.is_some() {
                 reply = reply.header(
@@ -327,6 +329,49 @@ fn handle(
         }
         _ => unreachable!(),
     }
+}
+
+/// Stream `length` bytes from `start` of a presented file's layout.
+pub(crate) fn layout_reader(
+    view: &View,
+    parts: &[String],
+    layout: &[view::Resolved],
+    start: u64,
+    length: u64,
+) -> Result<Box<dyn Read + Send>> {
+    let mut body: Box<dyn Read + Send> = Box::new(io::empty());
+    let (mut at, end) = (0u64, start + length);
+    for piece in layout {
+        let (lo, hi) = (at, at + piece.length());
+        at = hi;
+        if hi <= start || lo >= end {
+            continue;
+        }
+        let (from, to) = (start.max(lo) - lo, end.min(hi) - lo);
+        let part: Box<dyn Read + Send> = match piece {
+            view::Resolved::Bytes(b) => {
+                Box::new(Cursor::new(b[from as usize..to as usize].to_vec()))
+            }
+            view::Resolved::Own { stamp, offset, .. } => {
+                let mut file = view.open_piece(None, parts, *stamp)?;
+                file.seek(SeekFrom::Start(offset + from))?;
+                Box::new(file.take(to - from))
+            }
+            view::Resolved::Other {
+                source,
+                path,
+                stamp,
+                offset,
+                ..
+            } => {
+                let mut file = view.open_piece(Some(source), &view::split_path(path), *stamp)?;
+                file.seek(SeekFrom::Start(offset + from))?;
+                Box::new(file.take(to - from))
+            }
+        };
+        body = Box::new(body.chain(part));
+    }
+    Ok(body)
 }
 
 pub fn error_status(error: &anyhow::Error) -> u16 {
@@ -368,9 +413,26 @@ pub fn error_status(error: &anyhow::Error) -> u16 {
     400
 }
 
+/// Return memory freed after building a large disk to the OS, so the resident
+/// footprint reflects what the server keeps rather than the startup peak.
+fn release_free_memory() {
+    #[cfg(target_os = "macos")]
+    {
+        unsafe extern "C" {
+            fn malloc_zone_pressure_relief(zone: *mut std::ffi::c_void, goal: usize) -> usize;
+        }
+        // SAFETY: a null zone means all zones; goal 0 releases as much as possible.
+        unsafe {
+            malloc_zone_pressure_relief(std::ptr::null_mut(), 0);
+        }
+    }
+}
+
 pub fn serve(view: View, mode: Mode, port: u16, mut info: serde_json::Value) -> Result<()> {
     let image = if mode == Mode::Disk {
-        Some(Arc::new(disk::Image::new(&view)?))
+        let image = disk::Image::new(&view)?;
+        release_free_memory();
+        Some(Arc::new(image))
     } else {
         None
     };
@@ -433,6 +495,68 @@ pub fn serve(view: View, mode: Mode, port: u16, mut info: serde_json::Value) -> 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    struct Compose(Arc<Source>);
+    impl Plugin for Compose {
+        fn compose(&self, parts: &[String], _file: &File) -> Result<Option<Vec<Piece>>> {
+            Ok((parts == ["a.bin"]).then(|| {
+                vec![
+                    Piece::Bytes(b"<<".to_vec()),
+                    Piece::Own {
+                        offset: 2,
+                        length: 4,
+                    },
+                    Piece::Bytes(vec![]),
+                    Piece::Other {
+                        source: self.0.clone(),
+                        path: "b.bin".into(),
+                        offset: 1,
+                        length: 3,
+                        stamp: None,
+                    },
+                ]
+            }))
+        }
+    }
+
+    #[test]
+    fn composed_files_read_across_pieces_and_detect_changes() -> Result<()> {
+        let (src, other) = (tempfile::tempdir()?, tempfile::tempdir()?);
+        std::fs::write(src.path().join("a.bin"), b"0123456789")?;
+        std::fs::write(src.path().join("plain.bin"), b"plain")?;
+        std::fs::write(other.path().join("b.bin"), b"ABCDE")?;
+        let plugin = Compose(Arc::new(Source::new(other.path())?));
+        let view = View::new(
+            Arc::new(Source::new(src.path())?),
+            Arc::new(plugin),
+            "T".into(),
+        )?;
+        let read = |name: &str, start, len| -> Result<Vec<u8>> {
+            let parts = vec![name.to_string()];
+            let meta = view.metadata(&parts, &view.open(&parts)?)?;
+            let mut out = Vec::new();
+            layout_reader(&view, &parts, &meta.layout, start, len)?.read_to_end(&mut out)?;
+            Ok(out)
+        };
+        let full = b"<<2345BCD";
+        for start in 0..9u64 {
+            for len in 1..=9 - start {
+                assert_eq!(
+                    read("a.bin", start, len)?,
+                    &full[start as usize..(start + len) as usize]
+                );
+            }
+        }
+        assert_eq!(read("plain.bin", 1, 3)?, b"lai");
+        assert!(disk::Image::new(&view)?.length > 0);
+        // A change to the other file after the layout was captured is refused.
+        let parts = vec!["a.bin".to_string()];
+        let meta = view.metadata(&parts, &view.open(&parts)?)?;
+        assert_eq!(meta.size, 9);
+        std::fs::write(other.path().join("b.bin"), b"ABCDEF")?;
+        assert!(layout_reader(&view, &parts, &meta.layout, 0, 9).is_err());
+        Ok(())
+    }
     #[test]
     fn paths_and_range_boundaries_are_rejected() {
         for path in ["/t/../etc", "/t/%2e%2e/etc", "/t/a//b", "/t/%00"] {

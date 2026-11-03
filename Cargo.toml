@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/core", "plugins/pmp", "examples/hide-plugin"]
+members = ["crates/core", "plugins/pmp", "plugins/previews", "examples/hide-plugin"]
 resolver = "2"
 
 [package]
@@ -19,6 +19,7 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 diskproxy-core = { path = "crates/core" }
 diskproxy-pmp = { path = "plugins/pmp" }
+diskproxy-previews = { path = "plugins/previews" }
 
 [dev-dependencies]
 tempfile = "3"

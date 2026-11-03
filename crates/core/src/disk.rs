@@ -1,48 +1,76 @@
 //! A generated exFAT volume: metadata lives in RAM, photo extents stream from
 //! O_RDONLY source descriptors. No disk image or copy of the photos is written.
+use super::view::{Meta, Resolved, Source, Stamp, split_path};
 use super::{Reply, View, byte_range, error_status, header};
 use anyhow::{Context, Result, ensure};
 use chrono::{DateTime, Datelike, Timelike, Utc};
-use std::collections::BTreeMap;
 use std::fs::File;
 use std::io::{self, Read};
-use std::os::unix::fs::{FileExt, MetadataExt};
+use std::os::unix::fs::FileExt;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use tiny_http::Request;
 
 const SECTOR: u64 = 512;
 const CLUSTER: u64 = 256 * 1024;
 
 struct Node {
-    parts: Vec<String>,
-    children: Vec<usize>,
+    /// Last path component; empty for the root.
+    name: Box<str>,
+    parent: u32,
+    children: Vec<u32>,
     directory: bool,
     length: u64,
-    raw_mtime: i64,
-    raw_nsec: i64,
+    layout: Vec<Resolved>,
     mtime: i64,
     cluster: u32,
     clusters: u32,
 }
 
 enum Data {
-    Bytes(Vec<u8>),
-    Source {
-        parts: Vec<String>,
-        length: u64,
-        mtime: i64,
-        nsec: i64,
+    Bytes(Box<[u8]>),
+    /// A range of `files[file]`; `base` is the file offset at the extent start.
+    File {
+        file: u32,
+        base: u64,
+    },
+}
+
+/// A file read by the image, with the identity captured at build time.
+enum FileRef {
+    /// The presented source file at tree node `node`.
+    Own { node: u32, stamp: Stamp },
+    Other {
+        source: Arc<Source>,
+        path: Arc<str>,
+        stamp: Stamp,
     },
 }
 
 struct Extent {
+    start: u64,
     length: u64,
     data: Data,
 }
 
 pub struct Image {
     pub length: u64,
-    extents: BTreeMap<u64, Extent>,
+    /// Sorted by start, non-overlapping; gaps read as zeros.
+    extents: Vec<Extent>,
+    files: Vec<FileRef>,
+    /// (name, parent) for every scanned node, to rebuild source paths on read.
+    tree: Vec<(Box<str>, u32)>,
+}
+
+fn parts_of(tree: &[(Box<str>, u32)], mut id: u32) -> Vec<String> {
+    let mut parts = Vec::new();
+    while id != 0 {
+        let (name, parent) = &tree[id as usize];
+        parts.push(name.to_string());
+        id = *parent;
+    }
+    parts.reverse();
+    parts
 }
 
 fn put16(data: &mut [u8], pos: usize, value: u16) {
@@ -76,13 +104,15 @@ fn timestamp(epoch: i64) -> Result<(u32, u8)> {
     Ok((date << 16 | time, (d.second() % 2 * 100) as u8))
 }
 
+/// The name as written to exFAT: composed (NFC), the form macOS's exFAT driver
+/// uses for lookups. Source files keep their own spelling for opens.
+fn disk_name(name: &str) -> Vec<u16> {
+    use unicode_normalization::UnicodeNormalization;
+    name.nfc().collect::<String>().encode_utf16().collect()
+}
+
 fn entry(node: &Node) -> Result<Vec<u8>> {
-    let name: Vec<u16> = node
-        .parts
-        .last()
-        .context("missing disk entry name")?
-        .encode_utf16()
-        .collect();
+    let name = disk_name(&node.name);
     ensure!(
         !name.is_empty() && name.len() <= 255,
         "invalid exFAT name length"
@@ -129,50 +159,241 @@ fn entry(node: &Node) -> Result<Vec<u8>> {
     Ok(out)
 }
 
-fn scan(view: &View, nodes: &mut Vec<Node>, parts: Vec<String>) -> Result<usize> {
+const SCAN_THREADS: usize = 8;
+
+/// Scan counters, reported to stderr every two seconds on long scans.
+#[derive(Default)]
+struct Progress {
+    folders: AtomicUsize,
+    found: AtomicUsize,
+    /// Set once the folder walk is complete.
+    total: AtomicUsize,
+    done: AtomicUsize,
+    finished: AtomicBool,
+}
+impl Progress {
+    fn line(&self) -> String {
+        let (folders, found) = (
+            self.folders.load(Ordering::Relaxed),
+            self.found.load(Ordering::Relaxed),
+        );
+        match self.total.load(Ordering::Relaxed) {
+            0 => format!("progress: listing folders: {folders} folders, {found} files"),
+            total => {
+                let done = self.done.load(Ordering::Relaxed);
+                format!(
+                    "progress: reading files: {done} of {total} ({}%)",
+                    done * 100 / total
+                )
+            }
+        }
+    }
+    fn report(&self) {
+        let start = std::time::Instant::now();
+        while !self.finished.load(Ordering::Relaxed) {
+            std::thread::park_timeout(std::time::Duration::from_secs(2));
+            if !self.finished.load(Ordering::Relaxed) {
+                eprintln!("{}", self.line());
+            }
+        }
+        if start.elapsed().as_secs() >= 2 {
+            eprintln!(
+                "progress: scanned {} files in {} folders in {} s",
+                self.done.load(Ordering::Relaxed),
+                self.folders.load(Ordering::Relaxed),
+                start.elapsed().as_secs()
+            );
+        }
+    }
+}
+
+fn not_found() -> anyhow::Error {
+    io::Error::new(io::ErrorKind::NotFound, "entry changed type during scan").into()
+}
+
+/// Phase 1: walk directories serially, adding placeholder nodes for files.
+fn walk(
+    view: &View,
+    progress: &Progress,
+    nodes: &mut Vec<Node>,
+    jobs: &mut Vec<(u32, Vec<u32>)>,
+    parts: Vec<String>,
+    parent: u32,
+    file: File,
+) -> Result<u32> {
     ensure!(
-        parts.len() <= 64 && nodes.len() < 1_000_000,
+        parts.len() <= 64 && nodes.len() < 8_000_000,
         "card tree too large or deep"
     );
-    let file = view.open(&parts)?;
-    let raw = file.metadata()?;
     let meta = view.metadata(&parts, &file)?;
-    let id = nodes.len();
+    if !meta.directory {
+        return Err(not_found());
+    }
+    progress.folders.fetch_add(1, Ordering::Relaxed);
+    let id = nodes.len() as u32;
     nodes.push(Node {
-        parts: parts.clone(),
+        name: parts.last().map_or("", String::as_str).into(),
+        parent,
         children: vec![],
-        directory: meta.directory,
+        directory: true,
         length: meta.size,
-        raw_mtime: raw.mtime(),
-        raw_nsec: raw.mtime_nsec(),
+        layout: vec![],
         mtime: meta.mtime,
         cluster: 0,
         clusters: 0,
     });
-    if meta.directory {
-        let names = view.names(&parts, &file)?;
-        for name in names {
-            let mut child = parts.clone();
-            child.push(name);
-            match scan(view, nodes, child) {
-                Ok(child) => nodes[id].children.push(child),
+    let mut files = Vec::new();
+    for (name, is_dir) in view.entries(&file)? {
+        let mut child = parts.clone();
+        child.push(name);
+        if is_dir == Some(true) {
+            let result = view
+                .open_child(&child, &file)
+                .and_then(|f| walk(view, progress, nodes, jobs, child, id, f));
+            match result {
+                Ok(c) => nodes[id as usize].children.push(c),
                 Err(e) if matches!(error_status(&e), 403 | 404) => (),
                 Err(e) => return Err(e),
             }
+        } else {
+            ensure!(nodes.len() < 8_000_000, "card tree too large");
+            let c = nodes.len() as u32;
+            nodes.push(Node {
+                name: child.last().unwrap().as_str().into(),
+                parent: id,
+                children: vec![],
+                directory: false,
+                length: 0,
+                layout: vec![],
+                mtime: 0,
+                cluster: 0,
+                clusters: 0,
+            });
+            nodes[id as usize].children.push(c);
+            files.push(c);
+            progress.found.fetch_add(1, Ordering::Relaxed);
         }
+    }
+    if !files.is_empty() {
+        jobs.push((id, files));
     }
     Ok(id)
 }
 
+/// Phase 2: open and lay out files in parallel, one directory per task, opening
+/// each file relative to its already-open directory.
+fn scan(view: &View) -> Result<Vec<Node>> {
+    let progress = Progress::default();
+    std::thread::scope(|scope| {
+        let reporter = scope.spawn(|| progress.report());
+        let result = scan_files(view, &progress);
+        progress.finished.store(true, Ordering::Relaxed);
+        reporter.thread().unpark();
+        result
+    })
+}
+
+fn parts_of_nodes(nodes: &[Node], mut id: u32) -> Vec<String> {
+    let mut parts = Vec::new();
+    while id != 0 {
+        let node = &nodes[id as usize];
+        parts.push(node.name.to_string());
+        id = node.parent;
+    }
+    parts.reverse();
+    parts
+}
+
+fn scan_files(view: &View, progress: &Progress) -> Result<Vec<Node>> {
+    let mut nodes = Vec::new();
+    let mut jobs = Vec::new();
+    walk(
+        view,
+        progress,
+        &mut nodes,
+        &mut jobs,
+        vec![],
+        0,
+        view.open(&[])?,
+    )?;
+    progress.total.store(
+        progress.found.load(Ordering::Relaxed).max(1),
+        Ordering::Relaxed,
+    );
+    let next = AtomicUsize::new(0);
+    let results = std::thread::scope(|scope| -> Result<Vec<_>> {
+        let workers: Vec<_> = (0..SCAN_THREADS)
+            .map(|_| {
+                scope.spawn(|| -> Result<Vec<(u32, Option<Meta>)>> {
+                    let mut out = Vec::new();
+                    loop {
+                        let j = next.fetch_add(1, Ordering::Relaxed);
+                        let Some((dir_id, files)) = jobs.get(j) else {
+                            break;
+                        };
+                        let dir_parts = parts_of_nodes(&nodes, *dir_id);
+                        let dir = view.open(&dir_parts)?;
+                        for &fid in files {
+                            let mut parts = dir_parts.clone();
+                            parts.push(nodes[fid as usize].name.to_string());
+                            let parts = &parts;
+                            let meta = view.open_child(parts, &dir).and_then(|f| {
+                                let m = view.metadata(parts, &f)?;
+                                if m.directory { Err(not_found()) } else { Ok(m) }
+                            });
+                            progress.done.fetch_add(1, Ordering::Relaxed);
+                            match meta {
+                                Ok(m) => out.push((fid, Some(m))),
+                                Err(e) if matches!(error_status(&e), 403 | 404) => {
+                                    out.push((fid, None))
+                                }
+                                Err(e) => return Err(e.context(parts.join("/"))),
+                            }
+                        }
+                    }
+                    Ok(out)
+                })
+            })
+            .collect();
+        let mut all = Vec::new();
+        for w in workers {
+            all.extend(
+                w.join()
+                    .map_err(|_| anyhow::anyhow!("scan thread panicked"))??,
+            );
+        }
+        Ok(all)
+    })?;
+    let mut removed = std::collections::HashSet::new();
+    for (fid, meta) in results {
+        match meta {
+            Some(m) => {
+                let node = &mut nodes[fid as usize];
+                node.length = m.size;
+                node.layout = m.layout;
+                node.mtime = m.mtime;
+            }
+            None => {
+                removed.insert(fid);
+            }
+        }
+    }
+    if !removed.is_empty() {
+        for node in nodes.iter_mut().filter(|n| n.directory) {
+            node.children.retain(|c| !removed.contains(c));
+        }
+    }
+    Ok(nodes)
+}
+
 impl Image {
     pub fn new(view: &View) -> Result<Self> {
-        let mut nodes = Vec::new();
-        scan(view, &mut nodes, vec![])?;
+        let mut nodes = scan(view)?;
         for i in 0..nodes.len() {
             if nodes[i].directory {
                 let mut length = if i == 0 { 96 } else { 0 }; // label, bitmap, upcase
                 for &child in &nodes[i].children {
-                    let n = nodes[child].parts.last().unwrap().encode_utf16().count();
+                    let n = disk_name(&nodes[child as usize].name).len();
                     length += (2 + n.div_ceil(15)) * 32;
                 }
                 nodes[i].length = (length as u64 + 32).div_ceil(CLUSTER) * CLUSTER;
@@ -279,9 +500,16 @@ impl Image {
         let offset = |cluster: u32| heap + (cluster as u64 - 2) * CLUSTER;
         let mut image = Self {
             length,
-            extents: BTreeMap::new(),
+            extents: Vec::new(),
+            files: Vec::new(),
+            tree: Vec::new(),
         };
-        image.bytes(0, prefix);
+        image.bytes(0, prefix)?;
+        // Move each file's layout into the extent map instead of copying it.
+        let mut layouts: Vec<Vec<Resolved>> = nodes
+            .iter_mut()
+            .map(|n| std::mem::take(&mut n.layout))
+            .collect();
         for (i, node) in nodes.iter().enumerate() {
             if node.clusters == 0 {
                 continue;
@@ -309,42 +537,86 @@ impl Image {
                     bytes.extend_from_slice(&table);
                 }
                 for &child in &node.children {
-                    bytes.extend_from_slice(&entry(&nodes[child])?);
+                    bytes.extend_from_slice(&entry(&nodes[child as usize])?);
                 }
-                bytes.resize(node.length as usize, 0);
-                image.bytes(offset(node.cluster), bytes);
+                // Unused directory space reads as zeros; no need to store it.
+                image.bytes(offset(node.cluster), bytes)?;
             } else {
-                image.extents.insert(
-                    offset(node.cluster),
-                    Extent {
-                        length: node.length,
-                        data: Data::Source {
-                            parts: node.parts.clone(),
-                            length: node.length,
-                            mtime: node.raw_mtime,
-                            nsec: node.raw_nsec,
+                let mut at = offset(node.cluster);
+                let mut own = None; // one FileRef shared by all of this file's own ranges
+                for piece in std::mem::take(&mut layouts[i]) {
+                    let length = piece.length();
+                    let data = match piece {
+                        Resolved::Bytes(b) => Data::Bytes(b),
+                        Resolved::Own { stamp, offset, .. } => Data::File {
+                            file: *own.get_or_insert_with(|| {
+                                image.files.push(FileRef::Own {
+                                    node: i as u32,
+                                    stamp,
+                                });
+                                image.files.len() as u32 - 1
+                            }),
+                            base: offset,
                         },
-                    },
-                );
+                        Resolved::Other {
+                            source,
+                            path,
+                            stamp,
+                            offset,
+                            ..
+                        } => {
+                            image.files.push(FileRef::Other {
+                                source,
+                                path,
+                                stamp,
+                            });
+                            Data::File {
+                                file: image.files.len() as u32 - 1,
+                                base: offset,
+                            }
+                        }
+                    };
+                    image.push(at, length, data)?;
+                    at += length;
+                }
             }
         }
         let mut bitmap = vec![0u8; bitmap_length as usize];
         for i in 0..allocated {
             bitmap[i / 8] |= 1 << (i % 8);
         }
-        image.bytes(offset(bitmap_cluster), bitmap);
-        image.bytes(offset(upcase_cluster), upcase);
+        image.bytes(offset(bitmap_cluster), bitmap)?;
+        image.bytes(offset(upcase_cluster), upcase)?;
+        // A fresh, right-sized list (collecting in place would keep the node array).
+        let mut tree = Vec::with_capacity(nodes.len());
+        tree.extend(nodes.into_iter().map(|n| (n.name, n.parent)));
+        image.tree = tree;
+        image.extents.shrink_to_fit();
+        image.files.shrink_to_fit();
         Ok(image)
     }
 
-    fn bytes(&mut self, offset: u64, bytes: Vec<u8>) {
-        self.extents.insert(
-            offset,
-            Extent {
-                length: bytes.len() as u64,
-                data: Data::Bytes(bytes),
-            },
+    fn push(&mut self, start: u64, length: u64, data: Data) -> Result<()> {
+        if length == 0 {
+            return Ok(());
+        }
+        ensure!(
+            self.extents
+                .last()
+                .is_none_or(|e| e.start + e.length <= start),
+            "disk extents out of order"
         );
+        self.extents.push(Extent {
+            start,
+            length,
+            data,
+        });
+        Ok(())
+    }
+
+    fn bytes(&mut self, offset: u64, bytes: Vec<u8>) -> Result<()> {
+        let length = bytes.len() as u64;
+        self.push(offset, length, Data::Bytes(bytes.into_boxed_slice()))
     }
 
     pub fn reply(self: &Arc<Self>, view: &Arc<View>, request: &Request) -> Result<Reply> {
@@ -387,7 +659,8 @@ struct ImageReader {
     view: Arc<View>,
     position: u64,
     remaining: u64,
-    cached: Option<(u64, File)>,
+    /// The last opened file, by index into `Image::files`.
+    cached: Option<(u32, File)>,
 }
 
 impl Read for ImageReader {
@@ -398,47 +671,47 @@ impl Read for ImageReader {
         }
         let pos = self.position;
         let mut length = limit;
-        if let Some((&start, extent)) = self
-            .image
-            .extents
-            .range(..=pos)
-            .next_back()
-            .filter(|(s, e)| pos < **s + e.length)
+        let extents = &self.image.extents;
+        let i = extents.partition_point(|e| e.start <= pos);
+        if let Some(extent) = i
+            .checked_sub(1)
+            .map(|j| &extents[j])
+            .filter(|e| pos < e.start + e.length)
         {
-            length = length.min((extent.length - (pos - start)) as usize);
+            let offset = pos - extent.start;
+            length = length.min((extent.length - offset) as usize);
             match &extent.data {
-                Data::Bytes(bytes) => out[..length].copy_from_slice(
-                    &bytes[(pos - start) as usize..(pos - start) as usize + length],
-                ),
-                Data::Source {
-                    parts,
-                    length: expected,
-                    mtime,
-                    nsec,
-                } => {
-                    if self.cached.as_ref().map(|(s, _)| *s) != Some(start) {
-                        let file = self.view.open(parts).map_err(io::Error::other)?;
-                        let meta = file.metadata()?;
-                        if meta.len() != *expected
-                            || meta.mtime() != *mtime
-                            || meta.mtime_nsec() != *nsec
-                        {
-                            return Err(io::Error::other(
-                                "source file changed since disk snapshot; detach and restart",
-                            ));
-                        }
-                        self.cached = Some((start, file));
+                Data::Bytes(bytes) => {
+                    out[..length].copy_from_slice(&bytes[offset as usize..offset as usize + length])
+                }
+                Data::File { file, base } => {
+                    if self.cached.as_ref().map(|(f, _)| *f) != Some(*file) {
+                        let opened = match &self.image.files[*file as usize] {
+                            FileRef::Own { node, stamp } => self.view.open_piece(
+                                None,
+                                &parts_of(&self.image.tree, *node),
+                                *stamp,
+                            )?,
+                            FileRef::Other {
+                                source,
+                                path,
+                                stamp,
+                            } => self
+                                .view
+                                .open_piece(Some(source), &split_path(path), *stamp)?,
+                        };
+                        self.cached = Some((*file, opened));
                     }
                     self.cached
                         .as_ref()
                         .unwrap()
                         .1
-                        .read_exact_at(&mut out[..length], pos - start)?;
+                        .read_exact_at(&mut out[..length], base + offset)?;
                 }
             }
         } else {
-            if let Some((&next, _)) = self.image.extents.range(pos..).next() {
-                length = length.min((next - pos) as usize);
+            if let Some(next) = extents.get(i) {
+                length = length.min((next.start - pos) as usize);
             }
             out[..length].fill(0);
         }
@@ -452,14 +725,27 @@ impl Read for ImageReader {
 mod tests {
     use super::*;
     #[test]
+    fn decomposed_names_are_written_composed() {
+        // "CASTAN" + COMBINING TILDE + "ON" (NFD, as APFS may store it).
+        assert_eq!(
+            disk_name("CASTAN\u{303}ON"),
+            "CASTA\u{d1}ON".encode_utf16().collect::<Vec<_>>()
+        );
+        assert_eq!(
+            disk_name("plain.DNG"),
+            "plain.DNG".encode_utf16().collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
     fn directory_timestamp_has_valid_utc_and_correct_checksum() {
         let node = Node {
-            parts: vec!["ALXY8703.DNG".into()],
+            name: "ALXY8703.DNG".into(),
+            parent: 0,
             children: vec![],
             directory: false,
             length: 42484224,
-            raw_mtime: 1789355532,
-            raw_nsec: 0,
+            layout: vec![],
             mtime: 1789413132,
             cluster: 3,
             clusters: 162,

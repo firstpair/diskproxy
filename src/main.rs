@@ -11,6 +11,7 @@ enum PluginName {
     #[default]
     Passthrough,
     Pmp,
+    Previews,
 }
 #[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, ValueEnum, PartialEq)]
 #[serde(rename_all = "lowercase")]
@@ -19,6 +20,7 @@ enum Presentation {
     Disk,
     Webdav,
     Filtered,
+    Nfs,
 }
 #[derive(Default, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
@@ -28,6 +30,10 @@ struct Config {
     mode: Presentation,
     port: u16,
     label: Option<String>,
+    /// Mount the disk writable through a shadow file and harvest writes.
+    writable: bool,
+    /// Where the launcher mounts an NFS view (default ~/Volumes/LABEL).
+    mountpoint: Option<PathBuf>,
     plugins: BTreeMap<String, Value>,
 }
 #[derive(Parser)]
@@ -67,6 +73,20 @@ struct Args {
     history: Option<PathBuf>,
     #[arg(long)]
     profiles_dir: Option<PathBuf>,
+    // harvest: the mounted volume to watch, and when to stop.
+    #[arg(long)]
+    volume: Option<PathBuf>,
+    #[arg(long, default_value_t = 60)]
+    interval: u64,
+    #[arg(long)]
+    stop_file: Option<PathBuf>,
+    #[arg(long)]
+    since: Option<i64>,
+    #[arg(long)]
+    once: bool,
+    /// nfs: folder for client-written files (created if missing).
+    #[arg(long)]
+    overlay: Option<PathBuf>,
 }
 fn override_value(root: &mut Value, expression: &str) -> Result<()> {
     let (key, value) = expression
@@ -101,12 +121,39 @@ fn main() {
         });
     }
 }
+/// Unmount with the unmount(2) system call. Unlike umount(8) and diskutil, it
+/// does not then contact the server's mount daemon through rpcbind, which our
+/// NFS server does not register with and which makes those tools wait minutes.
+fn unmount(path: &std::ffi::OsStr, force: bool) -> Result<()> {
+    use std::os::unix::ffi::OsStrExt;
+    unsafe extern "C" {
+        fn unmount(target: *const std::ffi::c_char, flags: std::ffi::c_int) -> std::ffi::c_int;
+    }
+    let c = std::ffi::CString::new(path.as_bytes())?;
+    const MNT_FORCE: std::ffi::c_int = 0x0008_0000;
+    let flags = if force { MNT_FORCE } else { 0 };
+    // SAFETY: c is a valid NUL-terminated path and flags are plain unmount flags.
+    if unsafe { unmount(c.as_ptr(), flags) } != 0 {
+        return Err(std::io::Error::last_os_error())
+            .with_context(|| format!("unmount {}", path.to_string_lossy()));
+    }
+    Ok(())
+}
+
 fn run() -> Result<()> {
     let mut argv: Vec<_> = std::env::args_os().collect();
+    if argv.get(1).and_then(|s| s.to_str()) == Some("unmount") {
+        let force = argv.get(2).and_then(|s| s.to_str()) == Some("--force");
+        ensure!(
+            argv.len() == 3 + force as usize,
+            "usage: diskproxy-server unmount [--force] MOUNTPOINT"
+        );
+        return unmount(&argv[2 + force as usize], force);
+    }
     let operation = argv
         .get(1)
         .and_then(|s| s.to_str())
-        .filter(|s| matches!(*s, "serve" | "register"))
+        .filter(|s| matches!(*s, "serve" | "register" | "harvest"))
         .map(str::to_owned);
     if operation.is_some() {
         argv.remove(1);
@@ -116,7 +163,9 @@ fn run() -> Result<()> {
         !(operation.as_deref() == Some("serve") && args.register),
         "serve and --register conflict"
     );
-    let register = !args.check && (args.register || operation.as_deref() != Some("serve"));
+    let harvest = operation.as_deref() == Some("harvest");
+    let register =
+        !args.check && !harvest && (args.register || operation.as_deref() != Some("serve"));
     let refresh = args.register; // Bare registration never rewrites an established profile.
     let config_path = args
         .config
@@ -160,6 +209,10 @@ fn run() -> Result<()> {
                 let _: diskproxy_pmp::Config =
                     serde_json::from_value(value.clone()).context("invalid plugins.pmp config")?;
             }
+            "previews" => {
+                let _: diskproxy_previews::Config = serde_json::from_value(value.clone())
+                    .context("invalid plugins.previews config")?;
+            }
             _ => bail!("unknown plugin configuration: {name}"),
         }
     }
@@ -169,13 +222,35 @@ fn run() -> Result<()> {
     let source_path = config
         .source
         .context("source directory required on command line or in config")?;
+    if harvest {
+        ensure!(
+            config.plugin == PluginName::Previews,
+            "harvest requires the previews plugin"
+        );
+        let volume = args.volume.context("harvest needs --volume MOUNTPOINT")?;
+        let options: diskproxy_previews::Config =
+            serde_json::from_value(config.plugins.remove("previews").unwrap_or(json!({})))
+                .context("invalid plugins.previews config")?;
+        let plugin = diskproxy_previews::Previews::capture_only(options)?;
+        diskproxy_previews::capture::check_outside(plugin.ratings().unwrap(), &source_path)?;
+        return diskproxy_core::harvest::harvest(
+            &volume,
+            &plugin,
+            diskproxy_core::harvest::Options {
+                interval: std::time::Duration::from_secs(args.interval.max(1)),
+                stop_file: args.stop_file,
+                since: args.since,
+                once: args.once,
+            },
+        );
+    }
     ensure!(
         !(config.mode == Presentation::Filtered && config.plugin != PluginName::Pmp),
         "filtered mode requires the PMP plugin"
     );
     let (source, plugin, info, default_label): (_, Arc<dyn diskproxy_core::Plugin>, _, _) =
         match config.plugin {
-            PluginName::Passthrough => {
+            PluginName::Passthrough | PluginName::Previews => {
                 ensure!(
                     !register
                         && args.source_offset.is_none()
@@ -185,12 +260,32 @@ fn run() -> Result<()> {
                         && args.profiles_dir.is_none(),
                     "registration/PMP options require the PMP plugin; select a PMP config with --config FILE, or use diskproxy-server serve for a generic view"
                 );
-                (
-                    Arc::new(Source::new(&source_path)?),
-                    Arc::new(Passthrough),
-                    json!({"plugin":"passthrough", "source":source_path}),
-                    "DiskProxy",
-                )
+                if config.plugin == PluginName::Previews {
+                    let options: diskproxy_previews::Config = serde_json::from_value(
+                        config.plugins.remove("previews").unwrap_or(json!({})),
+                    )
+                    .context("invalid plugins.previews config")?;
+                    let plugin = diskproxy_previews::Previews::new(options)?;
+                    if let Some(r) = plugin.ratings() {
+                        diskproxy_previews::capture::check_outside(r, &source_path)?;
+                    }
+                    let mapped = plugin.len();
+                    let ratings = plugin.ratings().map(|p| p.to_path_buf());
+                    (
+                        Arc::new(Source::new(&source_path)?),
+                        Arc::new(plugin),
+                        json!({"plugin":"previews", "source":source_path, "mapped":mapped,
+                               "ratings": ratings}),
+                        "DiskProxy",
+                    )
+                } else {
+                    (
+                        Arc::new(Source::new(&source_path)?),
+                        Arc::new(Passthrough),
+                        json!({"plugin":"passthrough", "source":source_path}),
+                        "DiskProxy",
+                    )
+                }
             }
             PluginName::Pmp => {
                 let mut options: diskproxy_pmp::Config =
@@ -229,16 +324,37 @@ fn run() -> Result<()> {
             }
         };
     let label = config.label.unwrap_or_else(|| default_label.into());
+    let view_label = label.clone();
+    let mut info = info;
+    if config.writable {
+        ensure!(
+            config.mode == Presentation::Disk,
+            "writable applies to disk mode"
+        );
+        info["writable"] = json!(true);
+    }
     let view = View::new(source, plugin, label)?;
     if args.check || register {
         let mut info = info;
-        info["mode"] = json!(if config.mode == Presentation::Disk {
-            "disk"
-        } else {
-            "webdav"
+        info["mode"] = json!(match config.mode {
+            Presentation::Disk => "disk",
+            Presentation::Nfs => "nfs",
+            _ => "webdav",
         });
         println!("{info}");
         return Ok(());
+    }
+    if config.mode == Presentation::Nfs {
+        let mountpoint = config.mountpoint.clone().unwrap_or_else(|| {
+            PathBuf::from(std::env::var_os("HOME").unwrap_or_default())
+                .join("Volumes")
+                .join(&view_label)
+        });
+        info["mountpoint"] = json!(mountpoint);
+        let overlay = args.overlay.unwrap_or_else(|| {
+            std::env::temp_dir().join(format!("diskproxy-overlay-{}", std::process::id()))
+        });
+        return diskproxy_core::serve_nfs(view, config.port, overlay, info);
     }
     diskproxy_core::serve(
         view,

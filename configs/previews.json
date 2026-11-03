@@ -1,0 +1,12 @@
+{
+  "source": "/absolute/path/to/stand-in-tree",
+  "plugin": "previews",
+  "mode": "disk",
+  "label": "Previews",
+  "plugins": {
+    "previews": {
+      "map": "/absolute/path/to/previews.tsv",
+      "preview_root": "/absolute/path/to/preview-jpegs"
+    }
+  }
+}

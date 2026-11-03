@@ -1,0 +1,15 @@
+[package]
+name = "diskproxy-previews"
+version = "0.2.0"
+edition = "2024"
+description = "Serve DNGs with an embedded JPEG preview from another folder, and JPEGs with injected orientation"
+
+[dependencies]
+anyhow = "1"
+serde = { version = "1", features = ["derive"] }
+diskproxy-core = { path = "../../crates/core" }
+roxmltree = "0.20"
+serde_json = "1.0.154"
+
+[dev-dependencies]
+tempfile = "3"
