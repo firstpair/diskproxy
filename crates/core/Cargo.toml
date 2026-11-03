@@ -1,6 +1,6 @@
 [package]
 name = "diskproxy-core"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2024"
 description = "Policy-independent read-only source, exFAT, HTTP and WebDAV engine"
 

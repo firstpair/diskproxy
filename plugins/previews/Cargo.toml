@@ -1,6 +1,6 @@
 [package]
 name = "diskproxy-previews"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2024"
 description = "Serve DNGs with an embedded JPEG preview from another folder, and JPEGs with injected orientation"
 

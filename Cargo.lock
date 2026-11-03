@@ -251,7 +251,7 @@ dependencies = [
 
 [[package]]
 name = "diskproxy"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -266,7 +266,7 @@ dependencies = [
 
 [[package]]
 name = "diskproxy-core"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -286,7 +286,7 @@ dependencies = [
 
 [[package]]
 name = "diskproxy-hide-example"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "diskproxy-core",
@@ -296,7 +296,7 @@ dependencies = [
 
 [[package]]
 name = "diskproxy-pmp"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -311,7 +311,7 @@ dependencies = [
 
 [[package]]
 name = "diskproxy-previews"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "diskproxy-core",
