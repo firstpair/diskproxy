@@ -13,7 +13,7 @@ to adapt it. It covers installation, everyday commands, every configuration key,
 the three transports, writable views, two complete workflows, writing a plugin,
 the internal architecture, limits and troubleshooting. The
 [README](../README.md) is the short version; the
-[project story](diskproxy-blog.md) explains how the design came about.
+[project story](blog/diskproxy/post.md) explains how the design came about.
 
 ## What diskproxy is for
 

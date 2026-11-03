@@ -229,7 +229,7 @@ not a writable storage driver or disk repair tool.
 
 The [diskproxy manual](docs/diskproxy-manual.md) covers all of this in one
 place, with worked workflows and troubleshooting. For the implementation story,
-read [diskproxy: virtual disks for stable camera ingest and offline photo libraries](docs/diskproxy-blog.md).
+read [diskproxy: virtual disks for stable camera ingest and offline photo libraries](docs/blog/diskproxy/post.md).
 The [transport guide](docs/webdav.md) explains how WebDAV differs from the HTTP
 virtual disk used by the default launcher.
 

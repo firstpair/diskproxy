@@ -1,6 +1,6 @@
 # diskproxy: virtual disks for stable camera ingest and offline photo libraries
 
-![diskproxy illustrated as a brass machine carrying photo prints from a disk toward a camera lens.](../cover/diskproxy-cover.png)
+![diskproxy illustrated as a brass machine carrying photo prints from a disk toward a camera lens.](../../../cover/diskproxy-cover.png)
 
 A camera card I had already ingested started copying from the beginning after
 my laptop changed timezones. The pictures were still there, the card identity
@@ -174,7 +174,7 @@ padding, or the appropriate range of source bytes.
 
 The resulting data path has two possible client interfaces:
 
-![Source files pass through a shared plugin view to either WebDAV or an HTTP-backed exFAT volume.](diagrams/diskproxy-transports.png)
+![Source files pass through a shared plugin view to either WebDAV or an HTTP-backed exFAT volume.](../../diagrams/diskproxy-transports.png)
 
 The virtual exFAT entries contain valid UTC offsets. The policy determines the
 epoch timestamp; the disk generator encodes it in UTC. This removes the unknown-

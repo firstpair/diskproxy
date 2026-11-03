@@ -6,7 +6,7 @@ default_edition: full
 
 ## Ownership
 
-This repository owns the manual in `docs/diskproxy-manual.md`, the project story in `docs/diskproxy-blog.md`, the unchanged supplied cover in `cover/diskproxy-cover.png`, `book.build.json`, `docs/book/`, and the built `dist/` package and version manifest. The source is public at <https://github.com/firstpair/diskproxy>. FirstPair owns the catalog entry, stable reader/download routes, upload manifests and delivery metadata. Follow the shared rules in `~/src/firstpair/AGENTS.md`.
+This repository owns the manual in `docs/diskproxy-manual.md`, the project story in `docs/blog/diskproxy/post.md`, the unchanged supplied cover in `cover/diskproxy-cover.png`, `book.build.json`, `docs/book/`, and the built `dist/` package and version manifest. The source is public at <https://github.com/firstpair/diskproxy>. FirstPair owns the catalog entry, stable reader/download routes, upload manifests and delivery metadata. Follow the shared rules in `~/src/firstpair/AGENTS.md`.
 
 The manual and the code are MIT licensed. The manual contains no personal paths, catalogs, photos or inventories; its measurements are stated as observations of one library and one camera card.
 
@@ -41,3 +41,17 @@ npm run library:publish -- /absolute/path/to/diskproxy \
 After the plan and artifacts are reviewed and publication is authorized, run the same command without the dry-run suppression flags. Commit and push the FirstPair metadata produced in that same publication session.
 
 Reader-facing routes will be `https://firstpair.org/diskproxy-manual/pdf/`, `/diskproxy-manual/epub/`, `/read/diskproxy-manual/` and `/read/diskproxy-manual/chapters/`. Raw object-storage URLs belong in FirstPair manifests, not in reader-facing prose.
+
+## Blog
+
+The project story is `docs/blog/diskproxy/post.md`, published at `https://firstpair.press/diskproxy/`. After its source changes are committed and pushed, stamp its textpack, commit and push the three generated files, then deliver it:
+
+```sh
+cd /absolute/path/to/diskproxy
+REPO_ROOT="$PWD" BLOG_DOMAIN=firstpair.press \
+BLOG_TAGS=rust,photography,filesystems,nfs,webdav,plugins \
+BLOG_EXCERPT="A Leica ingest failure became a Rust proxy with stable timestamps, streamed virtual disks, a photo library served from its previews, and ratings captured without touching a file." \
+"$HOME/src/firstpair/publishing/scripts/stamp-versioned-blog.sh" docs/blog/diskproxy
+REPO_ROOT="$PWD" BLOG_DOMAIN=firstpair.press \
+"$HOME/src/firstpair/publishing/scripts/publish-versioned-blog.sh" docs/blog/diskproxy "$HOME/icloud/blogs"
+```
