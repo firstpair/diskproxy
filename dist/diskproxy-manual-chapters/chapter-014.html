@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="en-US" xml:lang="en-US">
+<head>
+  <meta charset="utf-8" />
+  <meta name="generator" content="pandoc" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+  <meta name="author" content="FirstPair contributors" />
+  <meta name="dcterms.date" content="2026-11-03" />
+  <meta name="description" content="A complete guide to diskproxy, from everyday commands and configuration to writable views, camera-card ingest, preview libraries and writing plugins." />
+  <title>Troubleshooting</title>
+  <style>
+    div.sitenav { display: flex; flex-direction: row; flex-wrap: wrap; }
+    span.navlink { flex: 1; }
+    span.navlink-label { display: inline-block; min-width: 4em; }
+    /* Default styles provided by pandoc.
+    ** See https://pandoc.org/MANUAL.html#variables-for-html for config info.
+    */
+    span.smallcaps{font-variant: small-caps;}
+    div.columns{display: flex; gap: 1.5em;}
+    div.column{flex: auto;}
+    @media screen {
+    div.columns{gap: min(4vw, 1.5em);}
+    div.column{overflow-x: auto;}
+    }
+    div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+    /* The extra [class] is a hack that increases specificity enough to
+       override a similar rule in reveal.js */
+    ul.task-list[class]{list-style: none;}
+    ul.task-list li input[type="checkbox"] {
+      font-size: inherit;
+      width: 0.8em;
+      margin: 0 0.8em 0.2em -1.6em;
+      vertical-align: middle;
+    }
+  </style>
+  <link rel="stylesheet" href="book.css" />
+</head>
+<body>
+<nav id="sitenav">
+<div class="sitenav">
+<span class="navlink">
+<span class="navlink-label">Up:</span> <a href="chapter-002.html" accesskey="u" rel="up">The diskproxy manual</a>
+</span>
+<span class="navlink">
+<span class="navlink-label">Top:</span> <a href="index.html" accesskey="t" rel="top">The diskproxy Manual</a>
+</span>
+</div>
+<div class="sitenav">
+<span class="navlink">
+<span class="navlink-label">Next:</span> <a href="chapter-015.html" accesskey="n" rel="next">Development and verification</a>
+</span>
+<span class="navlink">
+<span class="navlink-label">Previous:</span> <a href="chapter-013.html" accesskey="p" rel="previous">Limits</a>
+</span>
+</div>
+</nav>
+<h2 data-number="1.12" id="troubleshooting"><span
+class="header-section-number">1.12</span> Troubleshooting</h2>
+<table>
+<colgroup>
+<col style="width: 50%" />
+<col style="width: 50%" />
+</colgroup>
+<thead>
+<tr>
+<th>Symptom</th>
+<th>Cause and fix</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>Run diskproxy-server.</code></td>
+<td>The camera card is not registered; see <a
+href="chapter-009.html#registering-a-new-card">Registering a new
+card</a></td>
+</tr>
+<tr>
+<td><code>A managed session already exists.</code></td>
+<td>A view is already running; use <code>diskproxy status</code> or
+<code>diskproxy stop</code></td>
+</tr>
+<tr>
+<td><code>Detach failed. Server left running...</code></td>
+<td>An application still has files open; close them and run
+<code>diskproxy stop</code> again</td>
+</tr>
+<tr>
+<td><code>Mounted volume identity changed. Server left running.</code></td>
+<td>The mounted disk is not the one diskproxy attached; check it before
+doing anything else</td>
+</tr>
+<tr>
+<td><code>Server did not provide a disk URL within 15 minutes.</code></td>
+<td>The scan did not finish; the server’s errors are printed above the
+message</td>
+</tr>
+<tr>
+<td>A read fails with an I/O error</td>
+<td>A source or preview file changed while served; stop and start
+again</td>
+</tr>
+<tr>
+<td><code>Ratings harvest still running ...</code></td>
+<td>The final capture took over two minutes; check the harvester log in
+the session folder and retry</td>
+</tr>
+<tr>
+<td><code>Ratings check failed; disk left mounted.</code></td>
+<td>The replacement walk failed; see the harvester log, fix the cause
+and retry</td>
+</tr>
+<tr>
+<td><code>Mount point ... is not empty.</code></td>
+<td>NFS mode mounts only on an empty folder; empty it or set
+<code>mountpoint</code></td>
+</tr>
+<tr>
+<td>A DNG shows only a small thumbnail</td>
+<td>Its map entry is missing, or its preview could not be composed; the
+server log has a warning</td>
+</tr>
+</tbody>
+</table>
+<h3 data-number="1.12.1" id="the-nfs-unmount-hang"><span
+class="header-section-number">1.12.1</span> The NFS unmount hang</h3>
+<p>During early development on macOS 26, unmounting an NFS view hung
+inside the kernel’s NFS client three times, for between one minute and
+about half an hour. The volume disappeared at once, but the unmounting
+process sat in an uninterruptible wait with no NFS traffic, and later
+NFS mounts queued behind it. Since then the current server has passed
+142 consecutive mount/write/unmount cycles without a hang. They were 82
+direct cycles, covering both unmount methods, delayed and immediate
+unmounts and temporary-file-and-rename rewrites, plus 60 cycles through
+<code>diskproxy start</code> and <code>stop</code>. Unmounts took about
+0.1 seconds and the slowest stop took 4.6 seconds. The earlier hangs may
+have come from the first server version and a kernel client it left
+degraded; the cause is not proven.</p>
+<p>If it happens:</p>
+<ul>
+<li>leave the stuck process alone; it clears on its own, and killing it
+does not help;</li>
+<li>don’t start another NFS view until it clears, because new mounts
+queue behind it;</li>
+<li>use a shadow-file view in the meantime; it does not use NFS.</li>
+</ul>
+<p>The launcher unmounts with the <code>unmount(2)</code> system call,
+through <code>diskproxy-server unmount [--force] PATH</code>. Avoid
+<code>umount</code> and <code>diskutil unmount</code> for NFS views:
+they wait minutes afterwards for an rpcbind registration this server
+does not make.</p>
+</body>
+</html>

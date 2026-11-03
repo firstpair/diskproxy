@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="en-US" xml:lang="en-US">
+<head>
+  <meta charset="utf-8" />
+  <meta name="generator" content="pandoc" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+  <meta name="author" content="FirstPair contributors" />
+  <meta name="dcterms.date" content="2026-11-03" />
+  <meta name="description" content="A complete guide to diskproxy, from everyday commands and configuration to writable views, camera-card ingest, preview libraries and writing plugins." />
+  <title>Command reference</title>
+  <style>
+    div.sitenav { display: flex; flex-direction: row; flex-wrap: wrap; }
+    span.navlink { flex: 1; }
+    span.navlink-label { display: inline-block; min-width: 4em; }
+    /* Default styles provided by pandoc.
+    ** See https://pandoc.org/MANUAL.html#variables-for-html for config info.
+    */
+    span.smallcaps{font-variant: small-caps;}
+    div.columns{display: flex; gap: 1.5em;}
+    div.column{flex: auto;}
+    @media screen {
+    div.columns{gap: min(4vw, 1.5em);}
+    div.column{overflow-x: auto;}
+    }
+    div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+    /* The extra [class] is a hack that increases specificity enough to
+       override a similar rule in reveal.js */
+    ul.task-list[class]{list-style: none;}
+    ul.task-list li input[type="checkbox"] {
+      font-size: inherit;
+      width: 0.8em;
+      margin: 0 0.8em 0.2em -1.6em;
+      vertical-align: middle;
+    }
+  </style>
+  <link rel="stylesheet" href="book.css" />
+</head>
+<body>
+<nav id="sitenav">
+<div class="sitenav">
+<span class="navlink">
+<span class="navlink-label">Up:</span> <a href="chapter-002.html" accesskey="u" rel="up">The diskproxy manual</a>
+</span>
+<span class="navlink">
+<span class="navlink-label">Top:</span> <a href="index.html" accesskey="t" rel="top">The diskproxy Manual</a>
+</span>
+</div>
+<div class="sitenav">
+<span class="navlink">
+</span>
+<span class="navlink">
+<span class="navlink-label">Previous:</span> <a href="chapter-015.html" accesskey="p" rel="previous">Development and verification</a>
+</span>
+</div>
+</nav>
+<h2 data-number="1.14" id="command-reference"><span
+class="header-section-number">1.14</span> Command reference</h2>
+<h3 data-number="1.14.1" id="diskproxy"><span
+class="header-section-number">1.14.1</span> <code>diskproxy</code></h3>
+<table>
+<colgroup>
+<col style="width: 50%" />
+<col style="width: 50%" />
+</colgroup>
+<thead>
+<tr>
+<th>Command</th>
+<th>Effect</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>diskproxy [--config FILE] [start] [SOURCE] [options]</code></td>
+<td>Start a view in the background and mount it</td>
+</tr>
+<tr>
+<td><code>diskproxy status</code></td>
+<td>Show the running server and volume</td>
+</tr>
+<tr>
+<td><code>diskproxy stop</code></td>
+<td>Capture pending writes, unmount, stop the server and delete the
+session</td>
+</tr>
+<tr>
+<td><code>diskproxy --help</code></td>
+<td>Short usage</td>
+</tr>
+</tbody>
+</table>
+<p>Options after <code>start</code> are passed to the server, for
+example <code>--set KEY=VALUE</code> and <code>--label NAME</code>.</p>
+<h3 data-number="1.14.2" id="diskproxy-server"><span
+class="header-section-number">1.14.2</span>
+<code>diskproxy-server</code></h3>
+<table>
+<colgroup>
+<col style="width: 50%" />
+<col style="width: 50%" />
+</colgroup>
+<thead>
+<tr>
+<th>Command</th>
+<th>Effect</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>diskproxy-server</code></td>
+<td>Register a camera card with the default PMP config, then exit</td>
+</tr>
+<tr>
+<td><code>diskproxy-server register [options]</code></td>
+<td>The same, explicitly</td>
+</tr>
+<tr>
+<td><code>diskproxy-server serve [SOURCE] [options]</code></td>
+<td>Serve in the foreground; prints startup JSON</td>
+</tr>
+<tr>
+<td><code>diskproxy-server --config FILE --check</code></td>
+<td>Validate and print the startup JSON without serving</td>
+</tr>
+<tr>
+<td><code>diskproxy-server harvest --config FILE --volume PATH [--since EPOCH] [--once] [--interval S] [--stop-file PATH]</code></td>
+<td>Capture writes from a mounted writable volume</td>
+</tr>
+<tr>
+<td><code>diskproxy-server unmount [--force] PATH</code></td>
+<td>Unmount with <code>unmount(2)</code></td>
+</tr>
+</tbody>
+</table>
+<table>
+<colgroup>
+<col style="width: 50%" />
+<col style="width: 50%" />
+</colgroup>
+<thead>
+<tr>
+<th>Option</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--config FILE</code></td>
+<td>Config file; <code>DISKPROXY_CONFIG</code> sets the default</td>
+</tr>
+<tr>
+<td><code>--plugin NAME</code>, <code>--mode MODE</code>,
+<code>--label NAME</code>, <code>--port N</code></td>
+<td>Override those keys</td>
+</tr>
+<tr>
+<td><code>--set KEY=VALUE</code></td>
+<td>Override any key, including plugin settings</td>
+</tr>
+<tr>
+<td><code>--overlay DIR</code></td>
+<td>NFS: the overlay folder (the launcher sets it)</td>
+</tr>
+<tr>
+<td><code>--source-offset</code>, <code>--target-offset</code>,
+<code>--target-zone</code>, <code>--history</code>,
+<code>--profiles-dir</code></td>
+<td>PMP plugin settings</td>
+</tr>
+<tr>
+<td><code>--register</code></td>
+<td>PMP: refresh the card’s samples deliberately</td>
+</tr>
+</tbody>
+</table>
+</body>
+</html>

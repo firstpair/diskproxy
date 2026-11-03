@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="en-US" xml:lang="en-US">
+<head>
+  <meta charset="utf-8" />
+  <meta name="generator" content="pandoc" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+  <meta name="author" content="FirstPair contributors" />
+  <meta name="dcterms.date" content="2026-11-03" />
+  <meta name="description" content="A complete guide to diskproxy, from everyday commands and configuration to writable views, camera-card ingest, preview libraries and writing plugins." />
+  <title>The diskproxy manual</title>
+  <style>
+    div.sitenav { display: flex; flex-direction: row; flex-wrap: wrap; }
+    span.navlink { flex: 1; }
+    span.navlink-label { display: inline-block; min-width: 4em; }
+    /* Default styles provided by pandoc.
+    ** See https://pandoc.org/MANUAL.html#variables-for-html for config info.
+    */
+    span.smallcaps{font-variant: small-caps;}
+    div.columns{display: flex; gap: 1.5em;}
+    div.column{flex: auto;}
+    @media screen {
+    div.columns{gap: min(4vw, 1.5em);}
+    div.column{overflow-x: auto;}
+    }
+    div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+    /* The extra [class] is a hack that increases specificity enough to
+       override a similar rule in reveal.js */
+    ul.task-list[class]{list-style: none;}
+    ul.task-list li input[type="checkbox"] {
+      font-size: inherit;
+      width: 0.8em;
+      margin: 0 0.8em 0.2em -1.6em;
+      vertical-align: middle;
+    }
+  </style>
+  <link rel="stylesheet" href="book.css" />
+</head>
+<body>
+<nav id="sitenav">
+<div class="sitenav">
+<span class="navlink">
+<span class="navlink-label">Up:</span> <a href="chapter-001.html" accesskey="u" rel="up">The diskproxy Manual</a>
+</span>
+<span class="navlink">
+<span class="navlink-label">Top:</span> <a href="index.html" accesskey="t" rel="top">The diskproxy Manual</a>
+</span>
+</div>
+<div class="sitenav">
+<span class="navlink">
+<span class="navlink-label">Next:</span> <a href="chapter-003.html" accesskey="n" rel="next">What diskproxy is for</a>
+</span>
+<span class="navlink">
+<span class="navlink-label">Previous:</span> <a href="chapter-001.html" accesskey="p" rel="previous">The diskproxy Manual</a>
+</span>
+</div>
+</nav>
+<h1 data-number="1" id="the-diskproxy-manual"><span
+class="header-section-number">1</span> The diskproxy manual</h1>
+<p>diskproxy presents a folder to macOS applications as a virtual disk,
+an NFS volume or a WebDAV share, without ever writing to the folder. A
+plugin decides what the application sees: which files are visible, which
+timestamps they carry, how each file’s bytes are put together, and what
+happens to metadata the application writes back. Source bytes are read
+on demand, and disk metadata is built in memory, so nothing is copied
+and no kernel extension, FUSE driver or Python runtime is needed.</p>
+<p>This manual is for people who want to use diskproxy, and for
+developers who want to adapt it. It covers installation, everyday
+commands, every configuration key, the three transports, writable views,
+two complete workflows, writing a plugin, the internal architecture,
+limits and troubleshooting. The <a
+href="https://github.com/firstpair/diskproxy/blob/f617e26f0daf2cf8da67da5fd3a4b656ee7862cf/README.md">README</a>
+is the short version; the <a
+href="https://github.com/firstpair/diskproxy/blob/f617e26f0daf2cf8da67da5fd3a4b656ee7862cf/docs/diskproxy-blog.md">project
+story</a> explains how the design came about.</p>
+</body>
+</html>

@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="en-US" xml:lang="en-US">
+<head>
+  <meta charset="utf-8" />
+  <meta name="generator" content="pandoc" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+  <meta name="author" content="FirstPair contributors" />
+  <meta name="dcterms.date" content="2026-11-03" />
+  <meta name="description" content="A complete guide to diskproxy, from everyday commands and configuration to writable views, camera-card ingest, preview libraries and writing plugins." />
+  <title>What diskproxy is for</title>
+  <style>
+    div.sitenav { display: flex; flex-direction: row; flex-wrap: wrap; }
+    span.navlink { flex: 1; }
+    span.navlink-label { display: inline-block; min-width: 4em; }
+    /* Default styles provided by pandoc.
+    ** See https://pandoc.org/MANUAL.html#variables-for-html for config info.
+    */
+    span.smallcaps{font-variant: small-caps;}
+    div.columns{display: flex; gap: 1.5em;}
+    div.column{flex: auto;}
+    @media screen {
+    div.columns{gap: min(4vw, 1.5em);}
+    div.column{overflow-x: auto;}
+    }
+    div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+    /* The extra [class] is a hack that increases specificity enough to
+       override a similar rule in reveal.js */
+    ul.task-list[class]{list-style: none;}
+    ul.task-list li input[type="checkbox"] {
+      font-size: inherit;
+      width: 0.8em;
+      margin: 0 0.8em 0.2em -1.6em;
+      vertical-align: middle;
+    }
+  </style>
+  <link rel="stylesheet" href="book.css" />
+</head>
+<body>
+<nav id="sitenav">
+<div class="sitenav">
+<span class="navlink">
+<span class="navlink-label">Up:</span> <a href="chapter-002.html" accesskey="u" rel="up">The diskproxy manual</a>
+</span>
+<span class="navlink">
+<span class="navlink-label">Top:</span> <a href="index.html" accesskey="t" rel="top">The diskproxy Manual</a>
+</span>
+</div>
+<div class="sitenav">
+<span class="navlink">
+<span class="navlink-label">Next:</span> <a href="chapter-004.html" accesskey="n" rel="next">Installing</a>
+</span>
+<span class="navlink">
+<span class="navlink-label">Previous:</span> <a href="chapter-002.html" accesskey="p" rel="previous">The diskproxy manual</a>
+</span>
+</div>
+</nav>
+<h2 data-number="1.1" id="what-diskproxy-is-for"><span
+class="header-section-number">1.1</span> What diskproxy is for</h2>
+<p>diskproxy solves one general problem: an application expects files to
+look a certain way, and you cannot or should not change the files
+themselves. Typical reasons are:</p>
+<ul>
+<li>the files are originals you want to protect, such as a camera card
+or a photo library;</li>
+<li>the application identifies files by properties that change for
+reasons unrelated to their content, such as filesystem timestamps;</li>
+<li>the useful version of a file is spread across two places, such as a
+small stand-in in one folder and its preview in another;</li>
+<li>the application writes metadata you want to keep, but not into the
+files.</li>
+</ul>
+<p>Three plugins ship with diskproxy:</p>
+<table>
+<colgroup>
+<col style="width: 33%" />
+<col style="width: 33%" />
+<col style="width: 33%" />
+</colgroup>
+<thead>
+<tr>
+<th>Plugin</th>
+<th>What it presents</th>
+<th>Typical use</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>passthrough</code></td>
+<td>The folder as it is</td>
+<td>A protected, read-only view of any folder</td>
+</tr>
+<tr>
+<td><code>pmp</code></td>
+<td>A camera card with stable modification times, optionally hiding
+photos already ingested</td>
+<td>Photo Mechanic Plus incremental ingest across timezone changes</td>
+</tr>
+<tr>
+<td><code>previews</code></td>
+<td>Stand-in DNGs with a large preview JPEG embedded from another
+folder, and JPEGs with orientation and capture time added</td>
+<td>Browsing and rating a photo library whose originals are offline</td>
+</tr>
+</tbody>
+</table>
+<h3 data-number="1.1.1" id="how-it-protects-the-source"><span
+class="header-section-number">1.1.1</span> How it protects the
+source</h3>
+<p>Every source file is opened read-only, through a root directory
+descriptor, one path component at a time, refusing symlinks,
+<code>.</code> and <code>..</code>, and anything that is not a regular
+file or directory. Plugins never receive a writable descriptor. The HTTP
+transports listen only on localhost, behind a fresh random 192-bit
+token, and reject every request that would change something.</p>
+<p>Writable views exist, but they are writable only inside a session:
+written bytes go to a shadow file or an overlay folder in the session
+directory, and <code>diskproxy stop</code> deletes them. Only what the
+plugin deliberately saves, such as the ratings captured by the previews
+plugin, outlives the session, and it is saved outside the source.</p>
+<p>A running view is a snapshot of the folder’s structure with live file
+bytes behind it. If a source file’s size or modification time changes
+while it is served, reads of it fail rather than returning a mixture of
+old and new data. Stop and start again after an intended change.</p>
+</body>
+</html>

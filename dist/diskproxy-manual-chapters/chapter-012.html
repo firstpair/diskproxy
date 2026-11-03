@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="en-US" xml:lang="en-US">
+<head>
+  <meta charset="utf-8" />
+  <meta name="generator" content="pandoc" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+  <meta name="author" content="FirstPair contributors" />
+  <meta name="dcterms.date" content="2026-11-03" />
+  <meta name="description" content="A complete guide to diskproxy, from everyday commands and configuration to writable views, camera-card ingest, preview libraries and writing plugins." />
+  <title>How it works</title>
+  <style>
+    div.sitenav { display: flex; flex-direction: row; flex-wrap: wrap; }
+    span.navlink { flex: 1; }
+    span.navlink-label { display: inline-block; min-width: 4em; }
+    /* Default styles provided by pandoc.
+    ** See https://pandoc.org/MANUAL.html#variables-for-html for config info.
+    */
+    span.smallcaps{font-variant: small-caps;}
+    div.columns{display: flex; gap: 1.5em;}
+    div.column{flex: auto;}
+    @media screen {
+    div.columns{gap: min(4vw, 1.5em);}
+    div.column{overflow-x: auto;}
+    }
+    div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+    /* The extra [class] is a hack that increases specificity enough to
+       override a similar rule in reveal.js */
+    ul.task-list[class]{list-style: none;}
+    ul.task-list li input[type="checkbox"] {
+      font-size: inherit;
+      width: 0.8em;
+      margin: 0 0.8em 0.2em -1.6em;
+      vertical-align: middle;
+    }
+  </style>
+  <link rel="stylesheet" href="book.css" />
+</head>
+<body>
+<nav id="sitenav">
+<div class="sitenav">
+<span class="navlink">
+<span class="navlink-label">Up:</span> <a href="chapter-002.html" accesskey="u" rel="up">The diskproxy manual</a>
+</span>
+<span class="navlink">
+<span class="navlink-label">Top:</span> <a href="index.html" accesskey="t" rel="top">The diskproxy Manual</a>
+</span>
+</div>
+<div class="sitenav">
+<span class="navlink">
+<span class="navlink-label">Next:</span> <a href="chapter-013.html" accesskey="n" rel="next">Limits</a>
+</span>
+<span class="navlink">
+<span class="navlink-label">Previous:</span> <a href="chapter-011.html" accesskey="p" rel="previous">Writing a plugin</a>
+</span>
+</div>
+</nav>
+<h2 data-number="1.10" id="how-it-works"><span
+class="header-section-number">1.10</span> How it works</h2>
+<h3 data-number="1.10.1" id="components"><span
+class="header-section-number">1.10.1</span> Components</h3>
+<table>
+<colgroup>
+<col style="width: 33%" />
+<col style="width: 33%" />
+<col style="width: 33%" />
+</colgroup>
+<thead>
+<tr>
+<th>Component</th>
+<th>Location</th>
+<th>Responsibility</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Core</td>
+<td><code>crates/core</code></td>
+<td>Read-only source access, the view, the exFAT builder, HTTP, WebDAV,
+NFS and harvesting; nothing application-specific</td>
+</tr>
+<tr>
+<td>PMP plugin</td>
+<td><code>plugins/pmp</code></td>
+<td>Camera layout, card profiles, timestamp conventions and history
+filtering</td>
+</tr>
+<tr>
+<td>Previews plugin</td>
+<td><code>plugins/previews</code></td>
+<td>The preview map, DNG and JPEG composition, and ratings capture</td>
+</tr>
+<tr>
+<td>Application</td>
+<td><code>src/main.rs</code></td>
+<td>Config loading, overrides, plugin selection, and the
+<code>harvest</code> and <code>unmount</code> commands</td>
+</tr>
+<tr>
+<td>Launcher</td>
+<td><code>bin/diskproxy</code></td>
+<td>The background process, mounting, harvesting and the
+start/status/stop lifecycle</td>
+</tr>
+</tbody>
+</table>
+<h3 data-number="1.10.2" id="sources-and-views"><span
+class="header-section-number">1.10.2</span> Sources and views</h3>
+<p>A <code>Source</code> opens its root directory once. Every lookup
+walks from that descriptor one component at a time with
+<code>openat</code> and <code>O_NOFOLLOW</code>, rejecting empty
+components, <code>.</code>, <code>..</code>, embedded slashes and NUL,
+and returning only read-only regular files and directories. A
+<code>View</code> combines a source, a plugin and a volume label, and
+every transport serves through it.</p>
+<h3 data-number="1.10.3" id="building-the-disk"><span
+class="header-section-number">1.10.3</span> Building the disk</h3>
+<p>The scan runs in two phases. A serial walk lists every folder and
+adds a placeholder for each file. Then a parallel phase opens and lays
+out the files, one directory per task, each file opened relative to its
+already-open folder, and calls the plugin’s <code>compose</code> for
+each. A reporter thread prints progress every two seconds on long
+scans.</p>
+<p>The layout keeps each name once, with a link to its parent folder,
+and rebuilds full paths only when a file is read; each file’s pieces
+become extents in the disk’s map. After building, the server returns
+freed startup memory to macOS, so its resident size reflects what it
+keeps.</p>
+<p>A disk read finds the extents covering the requested range: generated
+metadata, zeros, or ranges of source files. Before reading a source
+file, it checks that file’s size and modification time against what was
+recorded at scan time.</p>
+<h3 data-number="1.10.4" id="the-nfs-server"><span
+class="header-section-number">1.10.4</span> The NFS server</h3>
+<p>The NFS transport is built on the <code>nfsserve</code> crate and
+runs on tokio. It presents the same view by path. Its overlay keeps
+client-written files, client-created folders and the paths the client
+removed or renamed away. Presented metadata is computed on first use. A
+settle timer passes each written file to the plugin once it has had no
+writes for two seconds, and a <code>SIGTERM</code> handler flushes the
+rest.</p>
+<h3 data-number="1.10.5" id="the-launcher"><span
+class="header-section-number">1.10.5</span> The launcher</h3>
+<p><code>bin/diskproxy</code> starts <code>diskproxy-server serve</code>
+in the background with its output in the session folder, polls the
+startup JSON for the disk URL or NFS port, shows scan progress, and
+mounts. For a writable disk it also starts the harvester and records its
+arguments, start time and the mount time, so <code>stop</code> can
+finish or replace it. <code>stop</code> reverses each step and checks
+identities on the way, so it never detaches a different disk or stops a
+different process.</p>
+</body>
+</html>

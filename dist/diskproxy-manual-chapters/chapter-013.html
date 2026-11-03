@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="en-US" xml:lang="en-US">
+<head>
+  <meta charset="utf-8" />
+  <meta name="generator" content="pandoc" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+  <meta name="author" content="FirstPair contributors" />
+  <meta name="dcterms.date" content="2026-11-03" />
+  <meta name="description" content="A complete guide to diskproxy, from everyday commands and configuration to writable views, camera-card ingest, preview libraries and writing plugins." />
+  <title>Limits</title>
+  <style>
+    div.sitenav { display: flex; flex-direction: row; flex-wrap: wrap; }
+    span.navlink { flex: 1; }
+    span.navlink-label { display: inline-block; min-width: 4em; }
+    /* Default styles provided by pandoc.
+    ** See https://pandoc.org/MANUAL.html#variables-for-html for config info.
+    */
+    span.smallcaps{font-variant: small-caps;}
+    div.columns{display: flex; gap: 1.5em;}
+    div.column{flex: auto;}
+    @media screen {
+    div.columns{gap: min(4vw, 1.5em);}
+    div.column{overflow-x: auto;}
+    }
+    div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+    /* The extra [class] is a hack that increases specificity enough to
+       override a similar rule in reveal.js */
+    ul.task-list[class]{list-style: none;}
+    ul.task-list li input[type="checkbox"] {
+      font-size: inherit;
+      width: 0.8em;
+      margin: 0 0.8em 0.2em -1.6em;
+      vertical-align: middle;
+    }
+  </style>
+  <link rel="stylesheet" href="book.css" />
+</head>
+<body>
+<nav id="sitenav">
+<div class="sitenav">
+<span class="navlink">
+<span class="navlink-label">Up:</span> <a href="chapter-002.html" accesskey="u" rel="up">The diskproxy manual</a>
+</span>
+<span class="navlink">
+<span class="navlink-label">Top:</span> <a href="index.html" accesskey="t" rel="top">The diskproxy Manual</a>
+</span>
+</div>
+<div class="sitenav">
+<span class="navlink">
+<span class="navlink-label">Next:</span> <a href="chapter-014.html" accesskey="n" rel="next">Troubleshooting</a>
+</span>
+<span class="navlink">
+<span class="navlink-label">Previous:</span> <a href="chapter-012.html" accesskey="p" rel="previous">How it works</a>
+</span>
+</div>
+</nav>
+<h2 data-number="1.11" id="limits"><span
+class="header-section-number">1.11</span> Limits</h2>
+<ul>
+<li><strong>Disk mode:</strong> names must be UTF-8 and valid for exFAT,
+and timestamps must fall between 1980 and 2107. The case-folding table
+covers ASCII letters only. Unsupported names and times fail; they are
+not rewritten.</li>
+<li><strong>Previews plugin:</strong> classic TIFF only (not BigTIFF),
+files under 4 GiB. A preview is added, never replaced. JPEGs that
+already contain EXIF are served unchanged.</li>
+<li><strong>One session at a time</strong> through the launcher.</li>
+<li><strong>A stable source:</strong> files changed while served fail to
+read; restart after intended changes. A plugin’s prepared state, such as
+the PMP history snapshot or the previews map, is fixed for the
+session.</li>
+<li><strong>Writable views are per session.</strong> Written bytes are
+discarded on stop; only what a plugin saves is kept.</li>
+<li><strong>NFS mode is experimental.</strong></li>
+<li><strong>Local use only.</strong> There is no TLS, no user
+authentication and no sharing across a network; the HTTP URL is a
+localhost capability.</li>
+</ul>
+</body>
+</html>
