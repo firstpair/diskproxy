@@ -5,7 +5,7 @@
   <meta name="generator" content="pandoc" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
   <meta name="author" content="FirstPair contributors" />
-  <meta name="dcterms.date" content="2026-11-03" />
+  <meta name="dcterms.date" content="2026-11-05" />
   <meta name="description" content="A complete guide to diskproxy, from everyday commands and configuration to writable views, camera-card ingest, preview libraries and writing plugins." />
   <title>Limits</title>
   <style>
@@ -63,7 +63,9 @@ covers ASCII letters only. Unsupported names and times fail; they are
 not rewritten.</li>
 <li><strong>Previews plugin:</strong> classic TIFF only (not BigTIFF),
 files under 4 GiB. A preview is added, never replaced. JPEGs that
-already contain EXIF are served unchanged.</li>
+already contain EXIF are served unchanged. A metadata DNG’s XMP is
+served as it is, so its <code>dc:format</code> still says
+<code>image/dng</code>.</li>
 <li><strong>One session at a time</strong> through the launcher.</li>
 <li><strong>A stable source:</strong> files changed while served fail to
 read; restart after intended changes. A plugin’s prepared state, such as
