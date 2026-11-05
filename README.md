@@ -12,8 +12,8 @@ regular file types. The included [Photo Mechanic Plus plugin](plugins/pmp/README
 provides stable camera-card ingest across timezone changes and optional hiding
 of already-ingested files. Its setup and workflow are documented separately.
 The [previews plugin](plugins/previews/README.md) serves DNG stand-ins with a
-large preview JPEG taken from another folder, and JPEGs with injected
-orientation and capture time, without copying image data. On a writable view,
+large preview JPEG taken from another folder, and JPEGs with the camera, lens
+and XMP metadata of a matching DNG, without copying image data. On a writable view,
 it saves the ratings, color labels and flags an application writes as small XMP
 sidecars in a separate folder.
 
@@ -56,7 +56,9 @@ prints the mount location. Large trees take a while to scan. The launcher waits
 up to 15 minutes while the server is alive and shows its progress on one line,
 for example `Scanning: reading files: 523000 of 1256465 (41%)`. One tree of
 1.26 million files in 2,413 folders scanned in about a minute; the server then
-used about 1.2 GB of memory, peaking at 1.8 GB during startup. Trees of up to
+used about 1.2 GB of memory, peaking at 1.8 GB during startup. With camera
+metadata spliced into its 566,000 JPEGs, the same tree scans in about 110 seconds
+and uses 1.9 GB. Trees of up to
 8 million entries are supported. Stop detaches first, then stops the server. A busy
 disk stays served until it can be detached. Closing Terminal does not stop it.
 No manual URL copying or second Terminal is required.
@@ -247,7 +249,7 @@ HTTP ranges, write rejection, config precedence, and mocked launcher lifecycle.
 They also cover:
 - reads of composed files across every piece boundary, and change detection
   on their pieces;
-- the DNG preview patch and JPEG EXIF injection;
+- the DNG preview patch, JPEG EXIF injection and metadata spliced from a DNG;
 - composed (NFC) names on the disk;
 - capturing ratings from JPEG, DNG and sidecar XMP;
 - harvesting, both by walking the volume and from filesystem events.

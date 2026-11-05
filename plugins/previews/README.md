@@ -17,15 +17,24 @@ The source tree is served as usual. A map file names the files to change:
   show embedded previews (Photo Mechanic, Quick Look, `exiftool -PreviewImage`)
   then see the large JPEG instead of a small thumbnail, while raw-capable
   applications still read the original image data.
-- **JPEG with `orientation=` and/or `datetime=`:** a JPEG that has no EXIF block
-  is served with a small EXIF segment holding Orientation and DateTimeOriginal,
-  so portrait images display upright and sort by capture time.
+- **JPEG with `metadata=`:** a JPEG that has no EXIF block is served with the
+  EXIF and XMP of the named DNG, typically the photo's Lightroom Smart Preview:
+  camera, lens, exposure, serial number, GPS, and the DNG's XMP packet. The EXIF
+  is rebuilt in a new segment, without the DNG's image-structure tags and maker
+  note, and gains this JPEG's pixel size. The XMP segment's contents are read
+  from the DNG in place on every read, so it costs no memory.
+- **JPEG with `orientation=` and/or `datetime=`:** these set Orientation and
+  DateTimeOriginal in that EXIF segment, overriding the DNG's values, so
+  portrait images display upright and sort by capture time. They work with or
+  without `metadata=`.
 
 Unmapped files are served unchanged. If a mapped file cannot be composed (its
 preview JPEG is missing, or the DNG has an unexpected structure) it is served
 unchanged and a warning goes to the server's stderr. The preview JPEGs are
-opened read-only, without following symlinks, exactly like source files, and a
-read fails if a source or preview file changed after the disk was built.
+and metadata DNGs are opened read-only, without following symlinks, exactly like
+source files, and a read fails if a source, preview or metadata file changed
+after the disk was built. A JPEG whose metadata DNG is missing or unreadable is
+still served with its `orientation=` and `datetime=` values, with a warning.
 
 ## Capturing ratings
 
@@ -50,12 +59,13 @@ UTF-8 text, one line per file: a path relative to the source, then TAB-separated
 
 ```text
 2024/trip/IMG_0001.DNG	preview=a1/IMG_0001.jpg
-2024/trip/IMG_0002.JPG	orientation=6	datetime=2024:10:02 04:45:42
+2024/trip/IMG_0002.JPG	orientation=6	datetime=2024:10:02 04:45:42	metadata=0/0A1B/0A1B2C3D.dng
 ```
 
 | Key | Applies to | Value |
 | --- | --- | --- |
 | `preview` | DNG, TIFF | JPEG path relative to `preview_root` |
+| `metadata` | JPEG | DNG path relative to `metadata_root`, whose EXIF and XMP the JPEG is served with |
 | `orientation` | JPEG | EXIF orientation, 1–8 |
 | `datetime` | JPEG | `YYYY:MM:DD HH:MM:SS` |
 | `preview_size` | DNG, TIFF | Optional: the preview JPEG's size in bytes |
@@ -80,6 +90,7 @@ example with `stat -f '%z %Fm'`.
     "previews": {
       "map": "/absolute/path/to/previews.tsv",
       "preview_root": "/absolute/path/to/preview-jpegs",
+      "metadata_root": "/absolute/path/to/Catalog Smart Previews.lrdata",
       "ratings": "/absolute/path/to/ratings"
     }
   }
@@ -91,9 +102,12 @@ diskproxy --config previews.json start
 diskproxy stop
 ```
 
-Building the disk reads every mapped file's header and its preview JPEG's
-header. A tree of 1.26 million files with 1.24 million map entries starts in
-about a minute and then uses about 1.2 GB of memory. The launcher shows scan
+Building the disk reads every mapped file's header, its preview JPEG's header
+unless its stamp is in the map, and each mapped JPEG's metadata DNG header and
+EXIF block. A tree of 1.26 million files with 1.24 million map entries, 566,000
+of them JPEGs with `metadata=`, scans in about 110 seconds and then uses about
+1.9 GB of memory, with a 2.5 GB peak during startup. Without `metadata=` the same
+tree scans in about a minute and uses 1.2 GB. The launcher shows scan
 progress and waits up to 15 minutes while the server is alive.
 
 To capture ratings, add `"writable": true` (disk mode) or `"mode": "nfs"` to the
@@ -104,3 +118,5 @@ config; see [Writable views](../../README.md#writable-views).
 - Classic TIFF only (not BigTIFF), files under 4 GiB.
 - The preview is added, never replaced; an existing large preview stays first.
 - JPEGs that already contain EXIF are served unchanged.
+- A metadata DNG's XMP is served as it is, so its `dc:format` still says
+  `image/dng`. An XMP packet larger than one JPEG segment (64 KB) is left out.

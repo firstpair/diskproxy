@@ -35,7 +35,7 @@ Three plugins ship with diskproxy:
 | --- | --- | --- |
 | `passthrough` | The folder as it is | A protected, read-only view of any folder |
 | `pmp` | A camera card with stable modification times, optionally hiding photos already ingested | Photo Mechanic Plus incremental ingest across timezone changes |
-| `previews` | Stand-in DNGs with a large preview JPEG embedded from another folder, and JPEGs with orientation and capture time added | Browsing and rating a photo library whose originals are offline |
+| `previews` | Stand-in DNGs with a large preview JPEG embedded from another folder, and JPEGs with the camera, lens and XMP metadata of a matching DNG | Browsing and rating a photo library whose originals are offline |
 
 ### How it protects the source
 
@@ -140,7 +140,9 @@ printed on its own line.
 
 Measured on one library, a tree of 1.26 million files scanned in about a
 minute; the server then used about 1.2 GB of memory, with a 1.8 GB peak during
-startup. Trees of up to 8 million entries are supported.
+startup. With camera metadata spliced into its 566,000 JPEGs (see the previews
+plugin below), the same tree scanned in 110 seconds and used 1.9 GB, with a
+2.5 GB peak. Trees of up to 8 million entries are supported.
 
 ### When the volume is busy
 
@@ -435,7 +437,7 @@ tree followed by tab-separated fields:
 
 ```text
 2024/trip/IMG_0001.DNG	preview=a1/IMG_0001.jpg
-2024/trip/IMG_0002.JPG	orientation=6	datetime=2024:10:02 04:45:42
+2024/trip/IMG_0002.JPG	orientation=6	datetime=2024:10:02 04:45:42	metadata=0/0A1B/0A1B2C3D.dng
 ```
 
 | Key | For | Value |
@@ -444,6 +446,7 @@ tree followed by tab-separated fields:
 | `preview_size` | DNG, TIFF | Optional: the JPEG's size in bytes |
 | `preview_mtime` | DNG, TIFF | Optional: its modification time, `SECONDS.NANOSECONDS` |
 | `preview_dims` | DNG, TIFF | Optional: its pixel size, `WIDTHxHEIGHT` |
+| `metadata` | JPEG | A DNG whose EXIF and XMP the JPEG is served with, relative to `metadata_root` |
 | `orientation` | JPEG | EXIF orientation, 1 to 8 |
 | `datetime` | JPEG | Capture time, `YYYY:MM:DD HH:MM:SS` |
 
@@ -461,9 +464,16 @@ point at the copied directory. Applications that show embedded previews then
 find the large JPEG; raw-capable applications still read the original image
 data. An existing large preview is kept and stays first.
 
-For a JPEG without EXIF, `orientation=` and `datetime=` add a small EXIF
-segment, so portraits display upright and photos sort by capture time. JPEGs
-that already have EXIF are served unchanged.
+For a JPEG without EXIF, `metadata=` adds the EXIF and XMP of a DNG, typically
+the photo's Lightroom Smart Preview, so the JPEG shows its camera, lens,
+exposure, serial number and GPS position. The plugin rebuilds the EXIF in a new
+segment, leaving out the DNG's image-structure tags and maker note and adding
+the JPEG's own pixel size. It reads the XMP segment's contents from the DNG in
+place on every read, so they take no memory. The rebuilt EXIF, about 1.3 KB
+per JPEG, is kept in memory with the rest of the layout. `orientation=` and `datetime=` set
+Orientation and DateTimeOriginal in that segment, overriding the DNG, so
+portraits display upright and photos sort by capture time; they also work on
+their own. JPEGs that already have EXIF are served unchanged.
 
 Files not in the map are served unchanged. A mapped file that cannot be
 composed, because its JPEG is missing or the DNG has an unexpected structure, is
@@ -481,13 +491,15 @@ served unchanged with a warning in the server log, rather than failing the disk.
     "previews": {
       "map": "/absolute/path/to/previews.tsv",
       "preview_root": "/absolute/path/to/preview-jpegs",
+      "metadata_root": "/absolute/path/to/Catalog Smart Previews.lrdata",
       "ratings": "/absolute/path/to/ratings"
     }
   }
 }
 ```
 
-Leave out `writable` and `ratings` for a purely read-only library. Start it with
+`metadata_root` is needed only when the map has `metadata=` fields. Leave out
+`writable` and `ratings` for a purely read-only library. Start it with
 `diskproxy --config library.json start`. Check one file through the mounted
 volume:
 
@@ -687,7 +699,8 @@ the way, so it never detaches a different disk or stops a different process.
   Unsupported names and times fail; they are not rewritten.
 - **Previews plugin:** classic TIFF only (not BigTIFF), files under 4 GiB. A
   preview is added, never replaced. JPEGs that already contain EXIF are served
-  unchanged.
+  unchanged. A metadata DNG's XMP is served as it is, so its `dc:format` still
+  says `image/dng`.
 - **One session at a time** through the launcher.
 - **A stable source:** files changed while served fail to read; restart after
   intended changes. A plugin's prepared state, such as the PMP history snapshot
@@ -752,8 +765,8 @@ uv run --python 3.13 python scripts/check-plugin-example.py
 The Rust tests use synthetic sources. They cover path and range validation,
 read-only access and symlink rejection, exFAT timestamps and checksums, NFC
 names, composed reads across every piece boundary and change detection on
-their pieces, the DNG preview patch, JPEG EXIF injection, known preview stamps,
-map validation, the PMP timezone conventions, ratings capture from JPEG, DNG and
+their pieces, the DNG preview patch, JPEG EXIF injection and metadata splicing
+from a DNG, known preview stamps, map validation, the PMP timezone conventions, ratings capture from JPEG, DNG and
 sidecar XMP, sidecar naming and journaling, and harvesting by walk and by
 filesystem events. Integration tests run the server binary for config
 precedence, unknown settings and HTTP behavior. The Python tests drive the
