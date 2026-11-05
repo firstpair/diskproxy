@@ -59,7 +59,8 @@ UTF-8 text, one line per file: a path relative to the source, then TAB-separated
 
 ```text
 2024/trip/IMG_0001.DNG	preview=a1/IMG_0001.jpg
-2024/trip/IMG_0002.JPG	orientation=6	datetime=2024:10:02 04:45:42	metadata=0/0A1B/0A1B2C3D.dng
+2024/trip/IMG_0002.JPG	orientation=6	datetime=2024:10:02 04:45:42
+2024/trip/IMG_0003.JPG	metadata=0/0A1B/0A1B2C3D.dng
 ```
 
 | Key | Applies to | Value |
