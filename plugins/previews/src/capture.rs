@@ -13,6 +13,10 @@
 //! `X.JPG` becomes `X.JPG.xmp`, so a DNG and a JPEG with the same name never
 //! collide. A stand-in served as `X.JPG.dng` or `X.RW2.dng` is recorded under its
 //! original's name. Each change is appended to `JOURNAL.jsonl` in the folder.
+//!
+//! A property that a previously captured file no longer has, because the
+//! application removed it (or the whole XMP block), is recorded as cleared:
+//! Rating 0, an empty Label, ColorClass 0, Tagged False.
 use anyhow::{Context, Result, bail, ensure};
 use std::collections::BTreeMap;
 use std::fs::{self, File, OpenOptions};
@@ -39,6 +43,15 @@ const IMAGE_EXTENSIONS: [&str; 22] = [
 ];
 
 pub type Fields = BTreeMap<String, String>;
+
+/// The value recorded for a captured property the application removed.
+pub fn cleared(key: &str) -> &'static str {
+    match key {
+        "xmp:Label" => "",
+        "photomechanic:Tagged" => "False",
+        _ => "0", // xmp:Rating, photomechanic:ColorClass
+    }
+}
 
 pub struct Capture {
     dir: PathBuf,
@@ -169,8 +182,11 @@ pub fn fields(packet: &[u8]) -> Result<Fields> {
         .map_or(0, |i| i + 1);
     let text = std::str::from_utf8(&packet[..end]).context("XMP is not UTF-8")?;
     let text = text.trim_start_matches('\u{feff}');
-    let doc = roxmltree::Document::parse(text).context("parse XMP")?;
     let mut out = Fields::new();
+    if text.trim().is_empty() {
+        return Ok(out); // an emptied packet holds nothing
+    }
+    let doc = roxmltree::Document::parse(text).context("parse XMP")?;
     for d in doc
         .descendants()
         .filter(|n| n.has_tag_name((RDF_NS, "Description")))
@@ -187,6 +203,83 @@ pub fn fields(packet: &[u8]) -> Result<Fields> {
             }
         }
     }
+    Ok(out)
+}
+
+/// `base` (an XMP packet, or none) with the captured properties set to
+/// `values`. Only those properties are removed and re-added, in one new
+/// rdf:Description; every other byte of the packet is kept.
+pub fn with_fields(base: Option<&[u8]>, values: &Fields) -> Result<Vec<u8>> {
+    let Some(base) = base else {
+        return Ok(sidecar(values).into_bytes());
+    };
+    let end = base
+        .iter()
+        .rposition(|b| *b != 0 && !b.is_ascii_whitespace())
+        .map_or(0, |i| i + 1);
+    let full = std::str::from_utf8(&base[..end]).context("XMP is not UTF-8")?;
+    let bom = if full.starts_with('\u{feff}') { 3 } else { 0 };
+    let text = &full[bom..];
+    let doc = roxmltree::Document::parse(text).context("parse XMP")?;
+    let wanted = |ns: Option<&str>, name: &str| {
+        FIELDS.iter().any(|(fns, fname, prefix)| {
+            ns == Some(*fns) && name == *fname && values.contains_key(&format!("{prefix}:{fname}"))
+        })
+    };
+    // (range to replace, replacement)
+    let mut edits: Vec<(std::ops::Range<usize>, String)> = Vec::new();
+    for d in doc
+        .descendants()
+        .filter(|n| n.has_tag_name((RDF_NS, "Description")))
+    {
+        for a in d.attributes() {
+            if wanted(a.namespace(), a.name()) {
+                let r = a.range();
+                // Take the whitespace before the attribute with it.
+                let start = text[..r.start].trim_end().len();
+                edits.push((start..r.end, String::new()));
+            }
+        }
+        for c in d.children().filter(|c| c.is_element()) {
+            if wanted(c.tag_name().namespace(), c.tag_name().name()) {
+                edits.push((c.range(), String::new()));
+            }
+        }
+    }
+    let rdf = doc
+        .descendants()
+        .find(|n| n.has_tag_name((RDF_NS, "RDF")))
+        .context("XMP has no rdf:RDF")?;
+    let close = text[..rdf.range().end]
+        .rfind("</")
+        .context("rdf:RDF is not closed")?;
+    let p = rdf.lookup_prefix(RDF_NS).unwrap_or("rdf");
+    let attrs: String = values
+        .iter()
+        .map(|(k, v)| format!(" {k}=\"{}\"", escape(v)))
+        .collect();
+    edits.push((
+        close..close,
+        format!(
+            "<{p}:Description {p}:about=\"\" xmlns:xmp=\"{XMP_NS}\" xmlns:photomechanic=\"{PM_NS}\"{attrs}/>\n"
+        ),
+    ));
+    edits.sort_by_key(|(r, _)| (r.start, r.end));
+    let mut out = base[..bom].to_vec();
+    let mut at = 0;
+    for (r, with) in edits {
+        ensure!(r.start >= at, "overlapping XMP edits");
+        out.extend(&text.as_bytes()[at..r.start]);
+        out.extend(with.as_bytes());
+        at = r.end;
+    }
+    out.extend(&text.as_bytes()[at..]);
+    out.extend(&base[end..]);
+    let check = fields(&out).context("merged XMP")?;
+    ensure!(
+        values.iter().all(|(k, v)| check.get(k) == Some(v)),
+        "merged XMP does not hold the captured values"
+    );
     Ok(out)
 }
 
@@ -234,10 +327,11 @@ impl Capture {
         let Some(rel) = sidecar_path(parts) else {
             return Ok(None);
         };
-        let Some(packet) = packet(parts.last().unwrap(), file)? else {
-            return Ok(None);
+        let packet = packet(parts.last().unwrap(), file)?;
+        let mut new = match &packet {
+            Some(p) => fields(p)?,
+            None => Fields::new(),
         };
-        let new = fields(&packet)?;
         let _guard = self.lock.lock().unwrap();
         let path = rel.iter().fold(self.dir.clone(), |p, c| p.join(c));
         let old = match fs::read(&path) {
@@ -245,7 +339,13 @@ impl Capture {
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Fields::new(),
             Err(e) => return Err(e.into()),
         };
-        if new == old || (new.is_empty() && !path.exists()) {
+        // A captured property the file no longer has was cleared.
+        for key in old.keys() {
+            if !new.contains_key(key) {
+                new.insert(key.clone(), cleared(key).to_owned());
+            }
+        }
+        if new == old || new.is_empty() {
             return Ok(None);
         }
         let parent = path.parent().context("sidecar has no folder")?;
@@ -386,6 +486,84 @@ mod tests {
         assert_eq!(lines.len(), 2);
         assert_eq!(lines[1]["previous"]["xmp:Rating"], "4");
         assert_eq!(lines[1]["fields"]["xmp:Rating"], "5");
+        Ok(())
+    }
+
+    #[test]
+    fn removed_properties_are_recorded_as_cleared() -> Result<()> {
+        let dir = tempfile::tempdir()?;
+        let capture = Capture::new(dir.path().join("ratings"))?;
+        let written = dir.path().join("X.XMP");
+        let parts = p("a/X.XMP");
+        fs::write(&written, PMP_ATTRS)?;
+        capture.record(&parts, &File::open(&written)?)?;
+        // The rating and label are removed; the rest stays.
+        fs::write(
+            &written,
+            PMP_ATTRS
+                .replace(r#"xmp:Label="Green" "#, "")
+                .replace(r#"xmp:Rating="4" "#, ""),
+        )?;
+        assert!(capture.record(&parts, &File::open(&written)?)?.is_some());
+        let side = fields(&fs::read(dir.path().join("ratings/a/X.xmp"))?)?;
+        assert_eq!(
+            (side["xmp:Rating"].as_str(), side["xmp:Label"].as_str()),
+            ("0", "")
+        );
+        assert_eq!(side["photomechanic:ColorClass"], "4");
+        // The whole XMP block is removed: everything cleared, once.
+        fs::write(&written, b"")?;
+        assert!(capture.record(&parts, &File::open(&written)?)?.is_some());
+        let side = fields(&fs::read(dir.path().join("ratings/a/X.xmp"))?)?;
+        assert_eq!(side["photomechanic:ColorClass"], "0");
+        assert_eq!(side["photomechanic:Tagged"], "False");
+        assert!(capture.record(&parts, &File::open(&written)?)?.is_none());
+        let journal = fs::read_to_string(dir.path().join("ratings/JOURNAL.jsonl"))?;
+        let lines: Vec<serde_json::Value> = journal
+            .lines()
+            .map(serde_json::from_str)
+            .collect::<Result<_, _>>()?;
+        assert_eq!(lines.len(), 3);
+        assert_eq!(lines[1]["previous"]["xmp:Rating"], "4");
+        assert_eq!(lines[1]["fields"]["xmp:Rating"], "0");
+        // A file never captured, written without XMP, records nothing.
+        assert!(
+            capture
+                .record(&p("b/Y.XMP"), &File::open(&written)?)?
+                .is_none()
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn captured_values_merge_into_any_packet() -> Result<()> {
+        let values: Fields = [("xmp:Rating", "3"), ("xmp:Label", "Red")]
+            .map(|(k, v)| (k.to_owned(), v.to_owned()))
+            .into();
+        // No packet: a minimal one.
+        assert_eq!(fields(&with_fields(None, &values)?)?, values);
+        // Attribute form, other properties kept.
+        let merged = with_fields(Some(PMP_ATTRS.as_bytes()), &values)?;
+        let text = String::from_utf8(merged.clone())?;
+        assert!(text.contains("photoshop:DateCreated=\"2026-11-03T00:50:37-08:00\""));
+        let f = fields(&merged)?;
+        assert_eq!(
+            (f["xmp:Rating"].as_str(), f["xmp:Label"].as_str()),
+            ("3", "Red")
+        );
+        assert_eq!(f["photomechanic:ColorClass"], "4", "not captured, kept");
+        assert_eq!(text.matches("Rating").count(), 1, "the old value is gone");
+        // Element form, another rdf prefix, padding and a BOM kept.
+        let lightroom = "\u{feff}<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><r:RDF xmlns:r=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">\
+            <r:Description r:about=\"\" xmlns:xmp=\"http://ns.adobe.com/xap/1.0/\" xmlns:xmpMM=\"http://ns.adobe.com/xap/1.0/mm/\">\
+            <xmp:Rating>1</xmp:Rating><xmpMM:DocumentID>xmp.did:abc</xmpMM:DocumentID></r:Description></r:RDF></x:xmpmeta>   \n";
+        let merged = with_fields(Some(lightroom.as_bytes()), &values)?;
+        let text = String::from_utf8(merged.clone())?;
+        assert!(text.starts_with('\u{feff}') && text.ends_with("   \n"));
+        assert!(text.contains("<xmpMM:DocumentID>xmp.did:abc</xmpMM:DocumentID>"));
+        assert!(text.contains("<r:Description r:about=\"\" xmlns:xmp"));
+        assert_eq!(fields(&merged)?, values);
+        assert!(!text.contains("<xmp:Rating>"));
         Ok(())
     }
 

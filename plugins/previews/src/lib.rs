@@ -258,6 +258,32 @@ impl Previews {
             capture: Some(capture::Capture::new(ratings)?),
         })
     }
+    /// The ratings captured for a served JPEG in an earlier session, to serve
+    /// back, so they survive the end of the session that captured them.
+    fn captured(&self, parts: &[String]) -> Option<capture::Fields> {
+        let capture = self.capture.as_ref()?;
+        let name = parts.last()?.to_ascii_lowercase();
+        if !(name.ends_with(".jpg") || name.ends_with(".jpeg")) {
+            return None;
+        }
+        let rel = capture::sidecar_path(parts)?;
+        let path = rel
+            .iter()
+            .fold(capture.dir().to_path_buf(), |p, c| p.join(c));
+        let found = match std::fs::read(&path) {
+            Ok(data) => capture::fields(&data),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return None,
+            Err(e) => Err(e.into()),
+        };
+        match found {
+            Ok(fields) if !fields.is_empty() => Some(fields),
+            Ok(_) => None,
+            Err(e) => {
+                eprintln!("ratings: not serving {}: {e:#}", path.display());
+                None
+            }
+        }
+    }
     pub fn ratings(&self) -> Option<&Path> {
         self.capture.as_ref().map(capture::Capture::dir)
     }
@@ -271,8 +297,12 @@ impl Previews {
 
 impl Plugin for Previews {
     fn compose(&self, parts: &[String], file: &File) -> Result<Option<Vec<Piece>>> {
-        let Some(entry) = self.entries.get(nfc(&parts.join("/")).as_ref()) else {
-            return Ok(None);
+        let empty = Entry::default();
+        let ratings = self.captured(parts);
+        let entry = match self.entries.get(nfc(&parts.join("/")).as_ref()) {
+            Some(entry) => entry,
+            None if ratings.is_some() => &empty,
+            None => return Ok(None),
         };
         let size = file.metadata()?.len();
         let result = if let Some(preview) = &entry.preview {
@@ -287,6 +317,7 @@ impl Plugin for Previews {
         } else if entry.metadata.is_some()
             || entry.orientation.is_some()
             || entry.datetime.is_some()
+            || ratings.is_some()
         {
             let datetime = entry
                 .datetime
@@ -308,7 +339,15 @@ impl Plugin for Previews {
                     }
                 }
             });
-            jpeg_with_exif(file, size, entry.orientation, datetime, dng)
+            jpeg_with_exif(
+                file,
+                size,
+                entry.orientation,
+                datetime,
+                dng,
+                ratings.as_ref(),
+                &parts.join("/"),
+            )
         } else {
             return Ok(None);
         };
@@ -724,6 +763,23 @@ enum Xmp {
 }
 
 impl Xmp {
+    /// The packet's bytes, checking an in-place file is unchanged.
+    fn read(&self) -> Result<Vec<u8>> {
+        match self {
+            Xmp::Bytes(b) => Ok(b.clone()),
+            Xmp::InPlace {
+                source,
+                path,
+                offset,
+                length,
+                stamp,
+            } => {
+                let file = source.open_raw(&components(path)?)?;
+                ensure!(Stamp::of(&file)? == *stamp, "{path} changed");
+                read(&file, *offset, *length as usize)
+            }
+        }
+    }
     fn len(&self) -> u64 {
         match self {
             Xmp::InPlace { length, .. } => *length,
@@ -936,13 +992,22 @@ fn exif_segment(
 
 const XMP_SIGNATURE: &[u8] = b"http://ns.adobe.com/xap/1.0/\0";
 
+/// A JPEG with its EXIF rebuilt (when there is something to put in it: a
+/// metadata DNG, `orientation=` or `datetime=`) and its XMP packet holding
+/// the DNG's XMP and any captured `ratings`.
 fn jpeg_with_exif(
     file: &File,
     size: u64,
     orientation: Option<u16>,
     datetime: Option<&str>,
     dng: Option<DngMetadata>,
+    ratings: Option<&capture::Fields>,
+    label: &str,
 ) -> Result<Option<Vec<Piece>>> {
+    let rebuild_exif = dng.is_some() || orientation.is_some() || datetime.is_some();
+    if !rebuild_exif && ratings.is_none() {
+        return Ok(None);
+    }
     let head = Head::new(file, size)?;
     ensure!(head.get(0, 2)? == [0xff, 0xd8], "not a JPEG");
     let mut pos = 2u64;
@@ -1028,15 +1093,49 @@ fn jpeg_with_exif(
         set(&mut exif, Field::long(o, 40963, h));
     }
     let mut bytes = vec![0xff, 0xd8];
-    bytes.extend(exif_segment(o, ifd0, exif, gps)?);
+    let mut drop = Vec::new();
+    if rebuild_exif {
+        bytes.extend(exif_segment(o, ifd0, exif, gps)?);
+        drop = old_exif;
+    }
     let mut pieces = Vec::new();
+    const XMP_ROOM: u64 = 65533 - XMP_SIGNATURE.len() as u64;
+    let mut dng_xmp = dng.and_then(|m| m.xmp).filter(|x| x.len() <= XMP_ROOM);
+    // Captured ratings are merged into the packet that would be served (the
+    // DNG's, else the JPEG's own), which then replaces the JPEG's.
+    let merged = ratings.map(|values| -> Result<Vec<u8>> {
+        let base = match &dng_xmp {
+            Some(x) => Some(x.read()?),
+            None => match old_xmp.first() {
+                Some(&(start, end)) => Some(head.get(
+                    start + 4 + XMP_SIGNATURE.len() as u64,
+                    (end - start) as usize - 4 - XMP_SIGNATURE.len(),
+                )?),
+                None => None,
+            },
+        };
+        let packet = capture::with_fields(base.as_deref(), values)?;
+        ensure!(
+            packet.len() as u64 <= XMP_ROOM,
+            "too large for one JPEG segment"
+        );
+        Ok(packet)
+    });
+    match merged {
+        Some(Err(e)) => eprintln!("ratings: not served in {label}: {e:#}"),
+        Some(Ok(packet)) => {
+            drop.extend(old_xmp.iter().copied());
+            bytes.extend([0xff, 0xe1]);
+            bytes.extend(((2 + XMP_SIGNATURE.len() + packet.len()) as u16).to_be_bytes());
+            bytes.extend(XMP_SIGNATURE);
+            bytes.extend(packet);
+            dng_xmp = None;
+        }
+        None => (),
+    }
     // The DNG's XMP replaces the JPEG's own, so there is one packet; a JPEG
     // whose DNG has none keeps its own.
-    let mut drop = old_exif;
-    if let Some(xmp) = dng
-        .and_then(|m| m.xmp)
-        .filter(|x| x.len() <= 65533 - XMP_SIGNATURE.len() as u64)
-    {
+    if let Some(xmp) = dng_xmp {
         drop.extend(old_xmp);
         bytes.extend([0xff, 0xe1]);
         bytes.extend(((2 + XMP_SIGNATURE.len() as u64 + xmp.len()) as u16).to_be_bytes());
@@ -1230,7 +1329,15 @@ mod tests {
         )?);
         with.extend(&j[2..]);
         std::fs::write(&f2, &with)?;
-        let pieces = jpeg_with_exif(&File::open(&f2)?, with.len() as u64, Some(6), None, None)?;
+        let pieces = jpeg_with_exif(
+            &File::open(&f2)?,
+            with.len() as u64,
+            Some(6),
+            None,
+            None,
+            None,
+            "c.jpg",
+        )?;
         let out = assemble(pieces.unwrap(), &with, &[]);
         let seglen = u16::from_be_bytes([out[4], out[5]]) as usize;
         assert_eq!(ifd(&out[12..4 + seglen], 8), [(274, 3, 1, 6)]);
@@ -1392,7 +1499,7 @@ mod tests {
             vec![Field::short(o, 40961, 1)], // ColorSpace: sRGB
             vec![],
         )?);
-        let xmp = b"<x:xmpmeta>lightroom</x:xmpmeta>";
+        let xmp = br#"<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><rdf:Description rdf:about="" xmlns:xmpMM="http://ns.adobe.com/xap/1.0/mm/" xmpMM:DocumentID="lightroom"/></rdf:RDF></x:xmpmeta>"#;
         out.extend([0xff, 0xe1]);
         out.extend(((2 + XMP_SIGNATURE.len() + xmp.len()) as u16).to_be_bytes());
         out.extend(XMP_SIGNATURE);
@@ -1565,6 +1672,68 @@ mod tests {
         assert!(
             p.compose(&parts, &f)?.is_some(),
             "NFD name found by NFC map path"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn captured_ratings_are_served_back_after_a_restart() -> Result<()> {
+        let j = jpeg(1600, 1064);
+        let lr = lightroom_jpeg(&j)?;
+        let dir = tempfile::tempdir()?;
+        let d = dir.path();
+        std::fs::create_dir_all(d.join("src/a"))?;
+        std::fs::write(d.join("src/a/lr.jpg"), &lr)?;
+        std::fs::write(d.join("src/a/plain.jpg"), &j)?;
+        std::fs::write(d.join("src/a/unmapped.jpg"), &j)?;
+        let values: capture::Fields = [("xmp:Rating", "3"), ("xmp:Label", "Green")]
+            .map(|(k, v)| (k.to_owned(), v.to_owned()))
+            .into();
+        std::fs::create_dir_all(d.join("ratings/a"))?;
+        for name in ["lr.jpg", "plain.jpg", "unmapped.jpg"] {
+            std::fs::write(
+                d.join("ratings/a").join(format!("{name}.xmp")),
+                capture::sidecar(&values),
+            )?;
+        }
+        std::fs::write(
+            d.join("map.tsv"),
+            "a/lr.jpg\torientation=6\na/plain.jpg\torientation=6\n",
+        )?;
+        let p = Previews::new(Config {
+            map: Some(d.join("map.tsv")),
+            ratings: Some(d.join("ratings")),
+            ..Config::default()
+        })?;
+        let serve = |name: &str, own: &[u8]| -> Result<Vec<u8>> {
+            let parts = vec!["a".to_string(), name.to_string()];
+            let f = File::open(d.join("src/a").join(name))?;
+            Ok(assemble(p.compose(&parts, &f)?.unwrap(), own, &[]))
+        };
+        let xmp_count = |b: &[u8]| {
+            b.windows(XMP_SIGNATURE.len())
+                .filter(|w| *w == XMP_SIGNATURE)
+                .count()
+        };
+        for (name, own) in [("lr.jpg", &lr), ("plain.jpg", &j), ("unmapped.jpg", &j)] {
+            let out = serve(name, own)?;
+            assert_eq!(xmp_count(&out), 1, "{name}: one XMP packet");
+            let packet = capture::packet(name, &{
+                let path = d.join(format!("out-{name}"));
+                std::fs::write(&path, &out)?;
+                File::open(path)?
+            })?
+            .unwrap();
+            assert_eq!(capture::fields(&packet)?, values, "{name}: ratings served");
+            assert!(out.ends_with(&j[j.len() - 8..]), "{name}: image data kept");
+        }
+        // Lightroom's own XMP properties are kept in the merged packet.
+        assert!(serve("lr.jpg", &lr)?.windows(9).any(|w| w == b"lightroom"));
+        // An unmapped JPEG keeps its EXIF as it is: none here.
+        assert!(
+            !serve("unmapped.jpg", &j)?
+                .windows(6)
+                .any(|w| w == b"Exif\0\0")
         );
         Ok(())
     }
