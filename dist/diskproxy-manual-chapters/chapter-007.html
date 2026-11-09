@@ -7,7 +7,7 @@
   <meta name="author" content="FirstPair contributors" />
   <meta name="dcterms.date" content="2026-11-09" />
   <meta name="description" content="A complete guide to diskproxy, from everyday commands and configuration to writable views, camera-card ingest, preview libraries and writing plugins." />
-  <title>Choosing a transport</title>
+  <title>Everyday use</title>
   <style>
     div.sitenav { display: flex; flex-direction: row; flex-wrap: wrap; }
     span.navlink { flex: 1; }
@@ -112,101 +112,74 @@
 </div>
 <div class="sitenav">
 <span class="navlink">
-<span class="navlink-label">Next:</span> <a href="chapter-008.html" accesskey="n" rel="next">Writable views</a>
+<span class="navlink-label">Next:</span> <a href="chapter-008.html" accesskey="n" rel="next">Configuration</a>
 </span>
 <span class="navlink">
-<span class="navlink-label">Previous:</span> <a href="chapter-006.html" accesskey="p" rel="previous">Configuration</a>
+<span class="navlink-label">Previous:</span> <a href="chapter-006.html" accesskey="p" rel="previous">Installing</a>
 </span>
 </div>
 </nav>
-<h2 data-number="1.5" id="choosing-a-transport"><span
-class="header-section-number">1.5</span> Choosing a transport</h2>
-<p>All three transports serve the same view: the same visible files,
-timestamps and composed bytes. They differ in what macOS sees.</p>
-<table>
-<colgroup>
-<col style="width: 25%" />
-<col style="width: 25%" />
-<col style="width: 25%" />
-<col style="width: 25%" />
-</colgroup>
-<thead>
-<tr>
-<th></th>
-<th>Disk</th>
-<th>NFS</th>
-<th>WebDAV</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>macOS sees</td>
-<td>An exFAT disk attached by <code>hdiutil</code></td>
-<td>An NFSv3 volume mounted by <code>mount_nfs</code></td>
-<td>A WebDAV share</td>
-</tr>
-<tr>
-<td>Launcher mounts it</td>
-<td>Yes</td>
-<td>Yes</td>
-<td>No; use <code>diskproxy-server serve</code></td>
-</tr>
-<tr>
-<td>Counts as a disk</td>
-<td>Yes, e.g. under Disks in Photo Mechanic</td>
-<td>No</td>
-<td>No</td>
-</tr>
-<tr>
-<td>Writes</td>
-<td>Optional, through a shadow file</td>
-<td>Yes, into a session overlay</td>
-<td>Rejected</td>
-</tr>
-<tr>
-<td>Status</td>
-<td>Ready</td>
-<td>Experimental</td>
-<td>Ready</td>
-</tr>
-</tbody>
-</table>
-<h3 data-number="1.5.1" id="disk-mode"><span
-class="header-section-number">1.5.1</span> Disk mode</h3>
-<p>The server generates an exFAT disk image in memory and serves it as
-one HTTP resource, <code>card.img</code>. macOS attaches it with
-<code>hdiutil</code> as a raw disk image and reads it with HTTP range
-requests. The boot region, allocation table and directory entries are
-generated; file contents are mapped to ranges of the source files and
-read on demand; unused space reads as zeros. The image never exists as a
-file.</p>
-<p>Timestamps on the disk carry valid UTC offsets, so macOS does not
-reinterpret them in the current timezone. Names are written in composed
-Unicode (NFC), the form macOS’s exFAT driver uses for lookups, while
-source files are still opened by their own spelling.</p>
-<h3 data-number="1.5.2" id="nfs-mode"><span
-class="header-section-number">1.5.2</span> NFS mode</h3>
-<p>The server runs an NFSv3 server on localhost and the launcher mounts
-it with <code>mount_nfs</code>, which needs no administrator rights:</p>
-<pre class="text"><code>mount_nfs -o vers=3,tcp,port=P,mountport=P,nolocks,soft,intr,timeo=100,retrans=5 \
-  127.0.0.1:/ ~/Volumes/LABEL</code></pre>
-<p>The server has no lock manager, so <code>nolocks</code> keeps file
-locking local to the Mac. Every file operation reaches the server by
-name, which is what makes NFS useful for capturing writes; see <a
-href="chapter-008.html#writable-views">Writable views</a>. NFS mode is
-experimental: see <a href="chapter-014.html#the-nfs-unmount-hang">The
-NFS unmount hang</a>.</p>
-<h3 data-number="1.5.3" id="webdav-mode"><span
-class="header-section-number">1.5.3</span> WebDAV mode</h3>
-<p>WebDAV serves the tree as a read-only share. It is useful for tools
-and applications that work with folders rather than disks:</p>
-<div class="sourceCode" id="cb2"><pre class="sourceCode sh"><code class="sourceCode bash"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="ex">diskproxy-server</span> serve /path/to/folder <span class="at">--plugin</span> passthrough <span class="at">--mode</span> webdav</span></code></pre></div>
-<p>The server prints a JSON line with a URL of the form
-<code>http://127.0.0.1:PORT/TOKEN/</code>; treat the URL as a password.
-It implements <code>OPTIONS</code>, <code>PROPFIND</code> with depth 0
-or 1, <code>GET</code> and <code>HEAD</code> with single byte ranges,
-and rejects every other method with <code>403</code>. The <a
-href="https://github.com/firstpair/diskproxy/blob/6ea6c13d71cfda5fe34a35e1e92a8835c0c5059e/docs/webdav.md">transport
-guide</a> lists the supported properties and limits.</p>
+<h2 data-number="1.5" id="everyday-use"><span
+class="header-section-number">1.5</span> Everyday use</h2>
+<p>Once the default config names a source folder and a plugin, these are
+the only commands you need:</p>
+<div class="sourceCode" id="cb1"><pre class="sourceCode sh"><code class="sourceCode bash"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="ex">diskproxy</span> start      <span class="co"># or just: diskproxy</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="ex">diskproxy</span> status</span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a><span class="ex">diskproxy</span> stop</span></code></pre></div>
+<p><code>start</code> launches the server in the background, waits for
+it to scan the folder, mounts the result and prints where:</p>
+<pre class="text"><code>Ready: /Volumes/DiskProxy
+Select this volume in your application (under Disks in PMP).
+After use: diskproxy stop</code></pre>
+<p>Closing the Terminal window does not stop the view.
+<code>status</code> prints the server’s process ID and the mounted
+volume. <code>stop</code> finishes any pending capture, unmounts, then
+stops the server and deletes the session folder.</p>
+<h3 data-number="1.5.1"
+id="choosing-a-source-or-config-for-one-session"><span
+class="header-section-number">1.5.1</span> Choosing a source or config
+for one session</h3>
+<p>A path after <code>start</code> overrides the configured source.
+<code>--config</code> selects another config file, before or after
+<code>start</code>, and <code>--set</code> overrides any single key:</p>
+<div class="sourceCode" id="cb3"><pre class="sourceCode sh"><code class="sourceCode bash"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="ex">diskproxy</span> start /another/folder</span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a><span class="ex">diskproxy</span> <span class="at">--config</span> ~/views/library.json start</span>
+<span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a><span class="ex">diskproxy</span> start <span class="at">--config</span> ~/views/library.json <span class="at">--set</span> label=Library</span></code></pre></div>
+<h3 data-number="1.5.2" id="scanning-large-folders"><span
+class="header-section-number">1.5.2</span> Scanning large folders</h3>
+<p>Before it can serve a disk, the server reads the whole tree. For a
+camera card this takes a moment. For a large library the launcher shows
+progress on one line, updated in place every two seconds:</p>
+<pre class="text"><code>Scanning: listing folders: 3120 folders, 905000 files
+Scanning: reading files: 523000 of 1256465 (41%)</code></pre>
+<p>The server logs a summary when it finishes, for example
+<code>scanned 1256465 files in 2413 folders in 59 s</code>. The launcher
+waits up to 15 minutes while the server is alive, and stops at once if
+the server exits with an error. Short scans print nothing. When output
+is not a terminal, each update is printed on its own line.</p>
+<p>Measured on one library, a tree of 1.26 million files scanned in
+about a minute; the server then used about 1.2 GB of memory, with a 1.8
+GB peak during startup. With camera metadata spliced into its 566,000
+JPEGs (see the previews plugin below), the same tree scanned in 110
+seconds and used 1.9 GB, with a 2.5 GB peak. A second library of 835,383
+preview JPEGs, all but 440 with metadata from a 3.8 GB metadata store,
+scanned in 111 seconds on a busy machine and then used 1.64 GB. Trees of
+up to 8 million entries are supported.</p>
+<h3 data-number="1.5.3" id="when-the-volume-is-busy"><span
+class="header-section-number">1.5.3</span> When the volume is busy</h3>
+<p>If an application still has files open, macOS refuses to detach the
+disk, and <code>stop</code> says so and leaves the server running, so
+the application can finish. Close the files and run
+<code>diskproxy stop</code> again. Before detaching, <code>stop</code>
+checks that the mounted volume is still the one it attached, by its
+volume UUID, so it never detaches some other disk.</p>
+<h3 data-number="1.5.4" id="the-session-folder"><span
+class="header-section-number">1.5.4</span> The session folder</h3>
+<p>Each session lives in <code>~/Library/Caches/diskproxy/session</code>
+(set <code>DISKPROXY_STATE_DIR</code> to move it). It holds the server’s
+startup JSON and error log, the process ID and start time, the
+attachment details and, for writable views, the shadow file or overlay
+and the harvester’s log. Only one managed session runs at a time;
+<code>start</code> refuses to start a second one.</p>
 </body>
 </html>

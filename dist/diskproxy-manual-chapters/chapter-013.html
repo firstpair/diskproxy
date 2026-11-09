@@ -7,7 +7,7 @@
   <meta name="author" content="FirstPair contributors" />
   <meta name="dcterms.date" content="2026-11-09" />
   <meta name="description" content="A complete guide to diskproxy, from everyday commands and configuration to writable views, camera-card ingest, preview libraries and writing plugins." />
-  <title>Limits</title>
+  <title>Writing a plugin</title>
   <style>
     div.sitenav { display: flex; flex-direction: row; flex-wrap: wrap; }
     span.navlink { flex: 1; }
@@ -32,6 +32,71 @@
       margin: 0 0.8em 0.2em -1.6em;
       vertical-align: middle;
     }
+    /* CSS for syntax highlighting */
+    html { -webkit-text-size-adjust: 100%; }
+    pre > code.sourceCode { white-space: pre; position: relative; }
+    pre > code.sourceCode > span { display: inline-block; line-height: 1.25; }
+    pre > code.sourceCode > span:empty { height: 1.2em; }
+    .sourceCode { overflow: visible; }
+    code.sourceCode > span { color: inherit; text-decoration: inherit; }
+    div.sourceCode { margin: 1em 0; }
+    pre.sourceCode { margin: 0; }
+    @media screen {
+    div.sourceCode { overflow: auto; }
+    }
+    @media print {
+    pre > code.sourceCode { white-space: pre-wrap; }
+    pre > code.sourceCode > span { text-indent: -5em; padding-left: 5em; }
+    }
+    pre.numberSource code
+      { counter-reset: source-line 0; }
+    pre.numberSource code > span
+      { position: relative; left: -4em; counter-increment: source-line; }
+    pre.numberSource code > span > a:first-child::before
+      { content: counter(source-line);
+        position: relative; left: -1em; text-align: right; vertical-align: baseline;
+        border: none; display: inline-block;
+        -webkit-touch-callout: none; -webkit-user-select: none;
+        -khtml-user-select: none; -moz-user-select: none;
+        -ms-user-select: none; user-select: none;
+        padding: 0 4px; width: 4em;
+        color: #aaaaaa;
+      }
+    pre.numberSource { margin-left: 3em; border-left: 1px solid #aaaaaa;  padding-left: 4px; }
+    div.sourceCode
+      {   }
+    @media screen {
+    pre > code.sourceCode > span > a:first-child::before { text-decoration: underline; }
+    }
+    code span.al { color: #ff0000; font-weight: bold; } /* Alert */
+    code span.an { color: #60a0b0; font-weight: bold; font-style: italic; } /* Annotation */
+    code span.at { color: #7d9029; } /* Attribute */
+    code span.bn { color: #40a070; } /* BaseN */
+    code span.bu { color: #008000; } /* BuiltIn */
+    code span.cf { color: #007020; font-weight: bold; } /* ControlFlow */
+    code span.ch { color: #4070a0; } /* Char */
+    code span.cn { color: #880000; } /* Constant */
+    code span.co { color: #60a0b0; font-style: italic; } /* Comment */
+    code span.cv { color: #60a0b0; font-weight: bold; font-style: italic; } /* CommentVar */
+    code span.do { color: #ba2121; font-style: italic; } /* Documentation */
+    code span.dt { color: #902000; } /* DataType */
+    code span.dv { color: #40a070; } /* DecVal */
+    code span.er { color: #ff0000; font-weight: bold; } /* Error */
+    code span.ex { } /* Extension */
+    code span.fl { color: #40a070; } /* Float */
+    code span.fu { color: #06287e; } /* Function */
+    code span.im { color: #008000; font-weight: bold; } /* Import */
+    code span.in { color: #60a0b0; font-weight: bold; font-style: italic; } /* Information */
+    code span.kw { color: #007020; font-weight: bold; } /* Keyword */
+    code span.op { color: #666666; } /* Operator */
+    code span.ot { color: #007020; } /* Other */
+    code span.pp { color: #bc7a00; } /* Preprocessor */
+    code span.sc { color: #4070a0; } /* SpecialChar */
+    code span.ss { color: #bb6688; } /* SpecialString */
+    code span.st { color: #4070a0; } /* String */
+    code span.va { color: #19177c; } /* Variable */
+    code span.vs { color: #4070a0; } /* VerbatimString */
+    code span.wa { color: #60a0b0; font-weight: bold; font-style: italic; } /* Warning */
   </style>
   <link rel="stylesheet" href="book.css" />
 </head>
@@ -47,38 +112,130 @@
 </div>
 <div class="sitenav">
 <span class="navlink">
-<span class="navlink-label">Next:</span> <a href="chapter-014.html" accesskey="n" rel="next">Troubleshooting</a>
+<span class="navlink-label">Next:</span> <a href="chapter-014.html" accesskey="n" rel="next">How it works</a>
 </span>
 <span class="navlink">
-<span class="navlink-label">Previous:</span> <a href="chapter-012.html" accesskey="p" rel="previous">How it works</a>
+<span class="navlink-label">Previous:</span> <a href="chapter-012.html" accesskey="p" rel="previous">Workflow: a photo library served from its previews</a>
 </span>
 </div>
 </nav>
-<h2 data-number="1.11" id="limits"><span
-class="header-section-number">1.11</span> Limits</h2>
-<ul>
-<li><strong>Disk mode:</strong> names must be UTF-8 and valid for exFAT;
-unsupported names fail rather than being rewritten. exFAT holds times
-from 1980 to 2107: a modification time outside that range, such as the
-1969-12-31 that a camera with an unset clock can leave, is shown as the
-nearest one it can hold, with a warning naming the file. The
-case-folding table covers ASCII letters only.</li>
-<li><strong>Previews plugin:</strong> classic TIFF only (not BigTIFF),
-files under 4 GiB. A preview is added, never replaced. A mapped JPEG
-whose own EXIF cannot be parsed is served unchanged. A metadata DNG’s
-XMP is served as it is, so its <code>dc:format</code> still says
-<code>image/dng</code>.</li>
-<li><strong>One session at a time</strong> through the launcher.</li>
-<li><strong>A stable source:</strong> files changed while served fail to
-read; restart after intended changes. A plugin’s prepared state, such as
-the PMP history snapshot or the previews map, is fixed for the
-session.</li>
-<li><strong>Writable views are per session.</strong> Written bytes are
-discarded on stop; only what a plugin saves is kept.</li>
-<li><strong>NFS mode is experimental.</strong></li>
-<li><strong>Local use only.</strong> There is no TLS, no user
-authentication and no sharing across a network; the HTTP URL is a
-localhost capability.</li>
-</ul>
+<h2 data-number="1.11" id="writing-a-plugin"><span
+class="header-section-number">1.11</span> Writing a plugin</h2>
+<p>A plugin is a Rust crate that implements the <code>Plugin</code>
+trait from <code>diskproxy-core</code> and is linked into the
+application at build time. There is no dynamic loading: adding a plugin
+means adding a crate and registering it in <code>src/main.rs</code>. The
+<a
+href="https://github.com/firstpair/diskproxy/blob/c9d1fd1ad5dd0b315543b4b5eb052f7cb23eeb69/docs/plugins.md">plugin
+guide</a> gives every step, and the <a
+href="https://github.com/firstpair/diskproxy/blob/c9d1fd1ad5dd0b315543b4b5eb052f7cb23eeb69/examples/hide-plugin/README.md">hide
+example</a> is a complete, compiled reference with a patch that
+registers it.</p>
+<h3 data-number="1.11.1" id="the-trait"><span
+class="header-section-number">1.11.1</span> The trait</h3>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode rust"><code class="sourceCode rust"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="kw">pub</span> <span class="kw">trait</span> Plugin<span class="op">:</span> <span class="bu">Send</span> <span class="op">+</span> <span class="bu">Sync</span> <span class="op">{</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a>    <span class="kw">fn</span> identity(<span class="op">&amp;</span><span class="kw">self</span>) <span class="op">-&gt;</span> <span class="dt">Option</span><span class="op">&lt;</span><span class="dt">String</span><span class="op">&gt;</span> <span class="op">{</span> <span class="cn">None</span> <span class="op">}</span></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a>    <span class="kw">fn</span> visible(<span class="op">&amp;</span><span class="kw">self</span><span class="op">,</span> _parts<span class="op">:</span> <span class="op">&amp;</span>[<span class="dt">String</span>]<span class="op">,</span> _metadata<span class="op">:</span> <span class="op">&amp;</span>Metadata) <span class="op">-&gt;</span> <span class="dt">Result</span><span class="op">&lt;</span><span class="dt">bool</span><span class="op">&gt;</span> <span class="op">{</span> <span class="cn">Ok</span>(<span class="cn">true</span>) <span class="op">}</span></span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a>    <span class="kw">fn</span> mtime(<span class="op">&amp;</span><span class="kw">self</span><span class="op">,</span> _parts<span class="op">:</span> <span class="op">&amp;</span>[<span class="dt">String</span>]<span class="op">,</span> metadata<span class="op">:</span> <span class="op">&amp;</span>Metadata) <span class="op">-&gt;</span> <span class="dt">Result</span><span class="op">&lt;</span><span class="dt">i64</span><span class="op">&gt;</span> <span class="op">{</span> <span class="cn">Ok</span>(metadata<span class="op">.</span>mtime()) <span class="op">}</span></span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a>    <span class="kw">fn</span> compose(<span class="op">&amp;</span><span class="kw">self</span><span class="op">,</span> _parts<span class="op">:</span> <span class="op">&amp;</span>[<span class="dt">String</span>]<span class="op">,</span> _file<span class="op">:</span> <span class="op">&amp;</span>File) <span class="op">-&gt;</span> <span class="dt">Result</span><span class="op">&lt;</span><span class="dt">Option</span><span class="op">&lt;</span><span class="dt">Vec</span><span class="op">&lt;</span>Piece<span class="op">&gt;&gt;&gt;</span> <span class="op">{</span> <span class="cn">Ok</span>(<span class="cn">None</span>) <span class="op">}</span></span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a>    <span class="kw">fn</span> written(<span class="op">&amp;</span><span class="kw">self</span><span class="op">,</span> _parts<span class="op">:</span> <span class="op">&amp;</span>[<span class="dt">String</span>]<span class="op">,</span> _file<span class="op">:</span> <span class="op">&amp;</span>File) <span class="op">-&gt;</span> <span class="dt">Result</span><span class="op">&lt;</span>()<span class="op">&gt;</span> <span class="op">{</span> <span class="cn">Ok</span>(()) <span class="op">}</span></span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a><span class="op">}</span></span></code></pre></div>
+<p>Every method has a default, so a plugin overrides only what it needs.
+<code>parts</code> are the path components relative to the source
+root.</p>
+<table>
+<colgroup>
+<col style="width: 33%" />
+<col style="width: 33%" />
+<col style="width: 33%" />
+</colgroup>
+<thead>
+<tr>
+<th>Hook</th>
+<th>Return</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>identity</code></td>
+<td>Stable string or <code>None</code></td>
+<td>Seeds the disk’s volume serial; <code>None</code> derives it from
+the source</td>
+</tr>
+<tr>
+<td><code>visible</code></td>
+<td><code>true</code> or <code>false</code></td>
+<td>Shows or hides an entry, on direct opens as well as in listings</td>
+</tr>
+<tr>
+<td><code>mtime</code></td>
+<td>Unix seconds</td>
+<td>The modification time to present; the source keeps its own</td>
+</tr>
+<tr>
+<td><code>compose</code></td>
+<td>Pieces or <code>None</code></td>
+<td>Presents a file as a sequence of pieces; <code>None</code> serves it
+unchanged</td>
+</tr>
+<tr>
+<td><code>written</code></td>
+<td><code>()</code></td>
+<td>A client wrote this file on a writable view; <code>file</code> holds
+its new bytes</td>
+</tr>
+</tbody>
+</table>
+<p>An error aborts the operation; it is never a request to fall back to
+the unmodified entry. Keep the hooks deterministic for a session,
+because the disk is built from one snapshot of the tree. Plugins are
+shared across threads.</p>
+<h3 data-number="1.11.2" id="composing-files"><span
+class="header-section-number">1.11.2</span> Composing files</h3>
+<div class="sourceCode" id="cb2"><pre
+class="sourceCode rust"><code class="sourceCode rust"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="kw">pub</span> <span class="kw">enum</span> Piece <span class="op">{</span></span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a>    Bytes(<span class="dt">Vec</span><span class="op">&lt;</span><span class="dt">u8</span><span class="op">&gt;</span>)<span class="op">,</span></span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a>    Own <span class="op">{</span> offset<span class="op">:</span> <span class="dt">u64</span><span class="op">,</span> length<span class="op">:</span> <span class="dt">u64</span> <span class="op">},</span></span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a>    Other <span class="op">{</span></span>
+<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a>        source<span class="op">:</span> Arc<span class="op">&lt;</span>Source<span class="op">&gt;,</span></span>
+<span id="cb2-6"><a href="#cb2-6" aria-hidden="true" tabindex="-1"></a>        path<span class="op">:</span> Arc<span class="op">&lt;</span><span class="dt">str</span><span class="op">&gt;,</span></span>
+<span id="cb2-7"><a href="#cb2-7" aria-hidden="true" tabindex="-1"></a>        offset<span class="op">:</span> <span class="dt">u64</span><span class="op">,</span></span>
+<span id="cb2-8"><a href="#cb2-8" aria-hidden="true" tabindex="-1"></a>        length<span class="op">:</span> <span class="dt">u64</span><span class="op">,</span></span>
+<span id="cb2-9"><a href="#cb2-9" aria-hidden="true" tabindex="-1"></a>        stamp<span class="op">:</span> <span class="dt">Option</span><span class="op">&lt;</span>Stamp<span class="op">&gt;,</span></span>
+<span id="cb2-10"><a href="#cb2-10" aria-hidden="true" tabindex="-1"></a>    <span class="op">},</span></span>
+<span id="cb2-11"><a href="#cb2-11" aria-hidden="true" tabindex="-1"></a><span class="op">}</span></span></code></pre></div>
+<p><code>Bytes</code> are generated by the plugin, <code>Own</code> is a
+range of the file being presented, and <code>Other</code> is a range of
+a file under another root. Open that root with <code>Source::new</code>,
+so it gets the same read-only, no-symlink rules. The core checks every
+range against the file’s size, records each file’s size and modification
+time, and refuses reads once either changes. When the plugin already
+knows another file’s size and modification time, it can pass them as
+<code>stamp</code>, so the scan doesn’t open that file; the stamp is
+still checked on every read. Composed files are served identically by
+all three transports.</p>
+<h3 data-number="1.11.3" id="receiving-writes"><span
+class="header-section-number">1.11.3</span> Receiving writes</h3>
+<p><code>written</code> is called with a read-only handle to the new
+bytes: from the NFS overlay, or from the mounted volume for a harvested
+shadow-file view. The source is never written, and the handle cannot
+write to it. A plugin that saves something should save it outside the
+source, as the previews plugin’s ratings folder must be, and should
+treat the call as untrusted input: temporary files, partial saves and
+files the application writes for its own purposes all arrive here.</p>
+<h3 data-number="1.11.4" id="registering-and-testing"><span
+class="header-section-number">1.11.4</span> Registering and testing</h3>
+<p>To register a plugin, add its crate to the workspace and the
+application’s dependencies, add its name to <code>PluginName</code> in
+<code>src/main.rs</code>, validate its <code>plugins.&lt;name&gt;</code>
+settings before any setup I/O, and add a construction arm that returns
+the source, the plugin and its startup information. Test with synthetic
+folders only, through both direct opens and listings, and confirm that
+the source files are unchanged afterwards.</p>
+<p>A plugin is trusted code. The trait is a policy boundary, not a
+sandbox: a plugin can call any API Rust allows, so keep its own writes
+small, explicit and documented.</p>
 </body>
 </html>

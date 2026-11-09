@@ -7,7 +7,7 @@
   <meta name="author" content="FirstPair contributors" />
   <meta name="dcterms.date" content="2026-11-09" />
   <meta name="description" content="A complete guide to diskproxy, from everyday commands and configuration to writable views, camera-card ingest, preview libraries and writing plugins." />
-  <title>Troubleshooting</title>
+  <title>How it works</title>
   <style>
     div.sitenav { display: flex; flex-direction: row; flex-wrap: wrap; }
     span.navlink { flex: 1; }
@@ -47,106 +47,106 @@
 </div>
 <div class="sitenav">
 <span class="navlink">
-<span class="navlink-label">Next:</span> <a href="chapter-015.html" accesskey="n" rel="next">Development and verification</a>
+<span class="navlink-label">Next:</span> <a href="chapter-015.html" accesskey="n" rel="next">Limits</a>
 </span>
 <span class="navlink">
-<span class="navlink-label">Previous:</span> <a href="chapter-013.html" accesskey="p" rel="previous">Limits</a>
+<span class="navlink-label">Previous:</span> <a href="chapter-013.html" accesskey="p" rel="previous">Writing a plugin</a>
 </span>
 </div>
 </nav>
-<h2 data-number="1.12" id="troubleshooting"><span
-class="header-section-number">1.12</span> Troubleshooting</h2>
+<h2 data-number="1.12" id="how-it-works"><span
+class="header-section-number">1.12</span> How it works</h2>
+<h3 data-number="1.12.1" id="components"><span
+class="header-section-number">1.12.1</span> Components</h3>
 <table>
 <colgroup>
-<col style="width: 50%" />
-<col style="width: 50%" />
+<col style="width: 33%" />
+<col style="width: 33%" />
+<col style="width: 33%" />
 </colgroup>
 <thead>
 <tr>
-<th>Symptom</th>
-<th>Cause and fix</th>
+<th>Component</th>
+<th>Location</th>
+<th>Responsibility</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td><code>Run diskproxy-server.</code></td>
-<td>The camera card is not registered; see <a
-href="chapter-009.html#registering-a-new-card">Registering a new
-card</a></td>
+<td>Core</td>
+<td><code>crates/core</code></td>
+<td>Read-only source access, the view, the exFAT builder, HTTP, WebDAV,
+NFS and harvesting; nothing application-specific</td>
 </tr>
 <tr>
-<td><code>A managed session already exists.</code></td>
-<td>A view is already running; use <code>diskproxy status</code> or
-<code>diskproxy stop</code></td>
+<td>PMP plugin</td>
+<td><code>plugins/pmp</code></td>
+<td>Camera layout, card profiles, timestamp conventions and history
+filtering</td>
 </tr>
 <tr>
-<td><code>Detach failed. Server left running...</code></td>
-<td>An application still has files open; close them and run
-<code>diskproxy stop</code> again</td>
+<td>Previews plugin</td>
+<td><code>plugins/previews</code></td>
+<td>The preview map, DNG and JPEG composition, and ratings capture</td>
 </tr>
 <tr>
-<td><code>Mounted volume identity changed. Server left running.</code></td>
-<td>The mounted disk is not the one diskproxy attached; check it before
-doing anything else</td>
+<td>Application</td>
+<td><code>src/main.rs</code></td>
+<td>Config loading, overrides, plugin selection, and the
+<code>harvest</code> and <code>unmount</code> commands</td>
 </tr>
 <tr>
-<td><code>Server did not provide a disk URL within 15 minutes.</code></td>
-<td>The scan did not finish; the server’s errors are printed above the
-message</td>
-</tr>
-<tr>
-<td>A read fails with an I/O error</td>
-<td>A source or preview file changed while served; stop and start
-again</td>
-</tr>
-<tr>
-<td><code>Ratings harvest still running ...</code></td>
-<td>The final capture took over two minutes; check the harvester log in
-the session folder and retry</td>
-</tr>
-<tr>
-<td><code>Ratings check failed; disk left mounted.</code></td>
-<td>The replacement walk failed; see the harvester log, fix the cause
-and retry</td>
-</tr>
-<tr>
-<td><code>Mount point ... is not empty.</code></td>
-<td>NFS mode mounts only on an empty folder; empty it or set
-<code>mountpoint</code></td>
-</tr>
-<tr>
-<td>A DNG shows only a small thumbnail</td>
-<td>Its map entry is missing, or its preview could not be composed; the
-server log has a warning</td>
+<td>Launcher</td>
+<td><code>bin/diskproxy</code></td>
+<td>The background process, mounting, harvesting and the
+start/status/stop lifecycle</td>
 </tr>
 </tbody>
 </table>
-<h3 data-number="1.12.1" id="the-nfs-unmount-hang"><span
-class="header-section-number">1.12.1</span> The NFS unmount hang</h3>
-<p>During early development on macOS 26, unmounting an NFS view hung
-inside the kernel’s NFS client three times, for between one minute and
-about half an hour. The volume disappeared at once, but the unmounting
-process sat in an uninterruptible wait with no NFS traffic, and later
-NFS mounts queued behind it. Since then the current server has passed
-142 consecutive mount/write/unmount cycles without a hang. They were 82
-direct cycles, covering both unmount methods, delayed and immediate
-unmounts and temporary-file-and-rename rewrites, plus 60 cycles through
-<code>diskproxy start</code> and <code>stop</code>. Unmounts took about
-0.1 seconds and the slowest stop took 4.6 seconds. The earlier hangs may
-have come from the first server version and a kernel client it left
-degraded; the cause is not proven.</p>
-<p>If it happens:</p>
-<ul>
-<li>leave the stuck process alone; it clears on its own, and killing it
-does not help;</li>
-<li>don’t start another NFS view until it clears, because new mounts
-queue behind it;</li>
-<li>use a shadow-file view in the meantime; it does not use NFS.</li>
-</ul>
-<p>The launcher unmounts with the <code>unmount(2)</code> system call,
-through <code>diskproxy-server unmount [--force] PATH</code>. Avoid
-<code>umount</code> and <code>diskutil unmount</code> for NFS views:
-they wait minutes afterwards for an rpcbind registration this server
-does not make.</p>
+<h3 data-number="1.12.2" id="sources-and-views"><span
+class="header-section-number">1.12.2</span> Sources and views</h3>
+<p>A <code>Source</code> opens its root directory once. Every lookup
+walks from that descriptor one component at a time with
+<code>openat</code> and <code>O_NOFOLLOW</code>, rejecting empty
+components, <code>.</code>, <code>..</code>, embedded slashes and NUL,
+and returning only read-only regular files and directories. A
+<code>View</code> combines a source, a plugin and a volume label, and
+every transport serves through it.</p>
+<h3 data-number="1.12.3" id="building-the-disk"><span
+class="header-section-number">1.12.3</span> Building the disk</h3>
+<p>The scan runs in two phases. A serial walk lists every folder and
+adds a placeholder for each file. Then a parallel phase opens and lays
+out the files, one directory per task, each file opened relative to its
+already-open folder, and calls the plugin’s <code>compose</code> for
+each. A reporter thread prints progress every two seconds on long
+scans.</p>
+<p>The layout keeps each name once, with a link to its parent folder,
+and rebuilds full paths only when a file is read; each file’s pieces
+become extents in the disk’s map. After building, the server returns
+freed startup memory to macOS, so its resident size reflects what it
+keeps.</p>
+<p>A disk read finds the extents covering the requested range: generated
+metadata, zeros, or ranges of source files. Before reading a source
+file, it checks that file’s size and modification time against what was
+recorded at scan time.</p>
+<h3 data-number="1.12.4" id="the-nfs-server"><span
+class="header-section-number">1.12.4</span> The NFS server</h3>
+<p>The NFS transport is built on the <code>nfsserve</code> crate and
+runs on tokio. It presents the same view by path. Its overlay keeps
+client-written files, client-created folders and the paths the client
+removed or renamed away. Presented metadata is computed on first use. A
+settle timer passes each written file to the plugin once it has had no
+writes for two seconds, and a <code>SIGTERM</code> handler flushes the
+rest.</p>
+<h3 data-number="1.12.5" id="the-launcher"><span
+class="header-section-number">1.12.5</span> The launcher</h3>
+<p><code>bin/diskproxy</code> starts <code>diskproxy-server serve</code>
+in the background with its output in the session folder, polls the
+startup JSON for the disk URL or NFS port, shows scan progress, and
+mounts. For a writable disk it also starts the harvester and records its
+arguments, start time and the mount time, so <code>stop</code> can
+finish or replace it. <code>stop</code> reverses each step and checks
+identities on the way, so it never detaches a different disk or stops a
+different process.</p>
 </body>
 </html>

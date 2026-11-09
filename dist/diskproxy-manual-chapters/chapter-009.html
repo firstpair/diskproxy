@@ -7,7 +7,7 @@
   <meta name="author" content="FirstPair contributors" />
   <meta name="dcterms.date" content="2026-11-09" />
   <meta name="description" content="A complete guide to diskproxy, from everyday commands and configuration to writable views, camera-card ingest, preview libraries and writing plugins." />
-  <title>Workflow: camera-card ingest with Photo Mechanic Plus</title>
+  <title>Choosing a transport</title>
   <style>
     div.sitenav { display: flex; flex-direction: row; flex-wrap: wrap; }
     span.navlink { flex: 1; }
@@ -112,72 +112,101 @@
 </div>
 <div class="sitenav">
 <span class="navlink">
-<span class="navlink-label">Next:</span> <a href="chapter-010.html" accesskey="n" rel="next">Workflow: a photo library served from its previews</a>
+<span class="navlink-label">Next:</span> <a href="chapter-010.html" accesskey="n" rel="next">Writable views</a>
 </span>
 <span class="navlink">
-<span class="navlink-label">Previous:</span> <a href="chapter-008.html" accesskey="p" rel="previous">Writable views</a>
+<span class="navlink-label">Previous:</span> <a href="chapter-008.html" accesskey="p" rel="previous">Configuration</a>
 </span>
 </div>
 </nav>
-<h2 data-number="1.7"
-id="workflow-camera-card-ingest-with-photo-mechanic-plus"><span
-class="header-section-number">1.7</span> Workflow: camera-card ingest
-with Photo Mechanic Plus</h2>
-<p>This is the workflow diskproxy was first written for. The <a
-href="https://github.com/firstpair/diskproxy/blob/6ea6c13d71cfda5fe34a35e1e92a8835c0c5059e/plugins/pmp/README.md">PMP
-guide</a> is the complete reference.</p>
-<h3 data-number="1.7.1" id="the-problem"><span
-class="header-section-number">1.7.1</span> The problem</h3>
-<p>Photo Mechanic Plus records each ingested file’s path, size and
-modification time, and its incremental ingest copies only files it has
-not seen. On the exFAT cards examined, the camera wrote modification
-times without a valid timezone offset, so macOS interpreted them in
-whatever timezone the Mac was in when the card was mounted. After
-travelling, the same photo had a different modification time, Photo
-Mechanic thought it was new, and it copied the whole card again.</p>
-<h3 data-number="1.7.2" id="the-fix"><span
-class="header-section-number">1.7.2</span> The fix</h3>
-<p>The <code>pmp</code> plugin presents the card as a virtual disk with
-a fixed timestamp convention. For a new card the convention is UTC; a
-card with existing history keeps the convention its history was made in,
-for example Pacific time. The plugin works out the offset the card was
-mounted in from up to three sampled photos, recorded in a small profile
-on the card when it is registered. The photos themselves, and their EXIF
-capture times, are never changed.</p>
-<h3 data-number="1.7.3" id="setting-up"><span
-class="header-section-number">1.7.3</span> Setting up</h3>
-<div class="sourceCode" id="cb1"><pre class="sourceCode sh"><code class="sourceCode bash"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="ex">scripts/install.sh</span> <span class="at">--config</span> configs/pmp.json</span></code></pre></div>
-<p>The example config expects the card at <code>/Volumes/LEICA M</code>;
-edit <code>source</code> for another card name, or pass the path to
-<code>start</code>.</p>
-<h3 data-number="1.7.4" id="registering-a-new-card"><span
-class="header-section-number">1.7.4</span> Registering a new card</h3>
-<p>Finish any EXIF corrections first, then, with the card mounted in the
-timezone the Mac is currently set to:</p>
-<div class="sourceCode" id="cb2"><pre class="sourceCode sh"><code class="sourceCode bash"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="ex">diskproxy-server</span></span></code></pre></div>
-<p>With no command, <code>diskproxy-server</code> registers the card: it
-writes <code>.pmingest.dat</code> if it is absent and the profile
-<code>.pmp-ingest-proxy.json</code> to the card, and exits. If you run
-<code>diskproxy start</code> on an unregistered card, it simply prints
-<code>Run diskproxy-server.</code> If the Mac’s timezone changed while
-the card stayed mounted, remount it first, or give the offset it was
-mounted in:</p>
-<div class="sourceCode" id="cb3"><pre class="sourceCode sh"><code class="sourceCode bash"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="ex">diskproxy-server</span> <span class="at">--source-offset</span><span class="op">=</span>+09:00</span></code></pre></div>
-<p>Running the command again on a registered card reuses its profile
-unchanged. <code>--register</code> deliberately refreshes the samples
-after reviewed edits.</p>
-<h3 data-number="1.7.5" id="ingesting"><span
-class="header-section-number">1.7.5</span> Ingesting</h3>
-<div class="sourceCode" id="cb4"><pre class="sourceCode sh"><code class="sourceCode bash"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a><span class="ex">diskproxy</span> start</span>
-<span id="cb4-2"><a href="#cb4-2" aria-hidden="true" tabindex="-1"></a><span class="co"># In Photo Mechanic Plus, ingest from the PMP Pacific volume under Disks.</span></span>
-<span id="cb4-3"><a href="#cb4-3" aria-hidden="true" tabindex="-1"></a><span class="ex">diskproxy</span> stop</span></code></pre></div>
-<p>Then eject the card. The volume is called <code>PMP Pacific</code>
-for compatibility, even for UTC cards; the label does not set the
-convention.</p>
-<p>To hide photos already ingested, rather than relying on Photo
-Mechanic’s incremental history:</p>
-<div class="sourceCode" id="cb5"><pre class="sourceCode sh"><code class="sourceCode bash"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a><span class="ex">diskproxy</span> start <span class="at">--set</span> plugins.pmp.hide_ingested=true</span></code></pre></div>
-<p>The history is read once at start, so restart the view to hide newly
-ingested files.</p>
+<h2 data-number="1.7" id="choosing-a-transport"><span
+class="header-section-number">1.7</span> Choosing a transport</h2>
+<p>All three transports serve the same view: the same visible files,
+timestamps and composed bytes. They differ in what macOS sees.</p>
+<table>
+<colgroup>
+<col style="width: 25%" />
+<col style="width: 25%" />
+<col style="width: 25%" />
+<col style="width: 25%" />
+</colgroup>
+<thead>
+<tr>
+<th></th>
+<th>Disk</th>
+<th>NFS</th>
+<th>WebDAV</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>macOS sees</td>
+<td>An exFAT disk attached by <code>hdiutil</code></td>
+<td>An NFSv3 volume mounted by <code>mount_nfs</code></td>
+<td>A WebDAV share</td>
+</tr>
+<tr>
+<td>Launcher mounts it</td>
+<td>Yes</td>
+<td>Yes</td>
+<td>No; use <code>diskproxy-server serve</code></td>
+</tr>
+<tr>
+<td>Counts as a disk</td>
+<td>Yes, e.g. under Disks in Photo Mechanic</td>
+<td>No</td>
+<td>No</td>
+</tr>
+<tr>
+<td>Writes</td>
+<td>Optional, through a shadow file</td>
+<td>Yes, into a session overlay</td>
+<td>Rejected</td>
+</tr>
+<tr>
+<td>Status</td>
+<td>Ready</td>
+<td>Experimental</td>
+<td>Ready</td>
+</tr>
+</tbody>
+</table>
+<h3 data-number="1.7.1" id="disk-mode"><span
+class="header-section-number">1.7.1</span> Disk mode</h3>
+<p>The server generates an exFAT disk image in memory and serves it as
+one HTTP resource, <code>card.img</code>. macOS attaches it with
+<code>hdiutil</code> as a raw disk image and reads it with HTTP range
+requests. The boot region, allocation table and directory entries are
+generated; file contents are mapped to ranges of the source files and
+read on demand; unused space reads as zeros. The image never exists as a
+file.</p>
+<p>Timestamps on the disk carry valid UTC offsets, so macOS does not
+reinterpret them in the current timezone. Names are written in composed
+Unicode (NFC), the form macOS’s exFAT driver uses for lookups, while
+source files are still opened by their own spelling.</p>
+<h3 data-number="1.7.2" id="nfs-mode"><span
+class="header-section-number">1.7.2</span> NFS mode</h3>
+<p>The server runs an NFSv3 server on localhost and the launcher mounts
+it with <code>mount_nfs</code>, which needs no administrator rights:</p>
+<pre class="text"><code>mount_nfs -o vers=3,tcp,port=P,mountport=P,nolocks,soft,intr,timeo=100,retrans=5 \
+  127.0.0.1:/ ~/Volumes/LABEL</code></pre>
+<p>The server has no lock manager, so <code>nolocks</code> keeps file
+locking local to the Mac. Every file operation reaches the server by
+name, which is what makes NFS useful for capturing writes; see <a
+href="chapter-010.html#writable-views">Writable views</a>. NFS mode is
+experimental: see <a href="chapter-016.html#the-nfs-unmount-hang">The
+NFS unmount hang</a>.</p>
+<h3 data-number="1.7.3" id="webdav-mode"><span
+class="header-section-number">1.7.3</span> WebDAV mode</h3>
+<p>WebDAV serves the tree as a read-only share. It is useful for tools
+and applications that work with folders rather than disks:</p>
+<div class="sourceCode" id="cb2"><pre class="sourceCode sh"><code class="sourceCode bash"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="ex">diskproxy-server</span> serve /path/to/folder <span class="at">--plugin</span> passthrough <span class="at">--mode</span> webdav</span></code></pre></div>
+<p>The server prints a JSON line with a URL of the form
+<code>http://127.0.0.1:PORT/TOKEN/</code>; treat the URL as a password.
+It implements <code>OPTIONS</code>, <code>PROPFIND</code> with depth 0
+or 1, <code>GET</code> and <code>HEAD</code> with single byte ranges,
+and rejects every other method with <code>403</code>. The <a
+href="https://github.com/firstpair/diskproxy/blob/c9d1fd1ad5dd0b315543b4b5eb052f7cb23eeb69/docs/webdav.md">transport
+guide</a> lists the supported properties and limits.</p>
 </body>
 </html>

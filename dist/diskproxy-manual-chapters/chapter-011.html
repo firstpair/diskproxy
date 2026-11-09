@@ -7,7 +7,7 @@
   <meta name="author" content="FirstPair contributors" />
   <meta name="dcterms.date" content="2026-11-09" />
   <meta name="description" content="A complete guide to diskproxy, from everyday commands and configuration to writable views, camera-card ingest, preview libraries and writing plugins." />
-  <title>Writing a plugin</title>
+  <title>Workflow: camera-card ingest with Photo Mechanic Plus</title>
   <style>
     div.sitenav { display: flex; flex-direction: row; flex-wrap: wrap; }
     span.navlink { flex: 1; }
@@ -112,130 +112,72 @@
 </div>
 <div class="sitenav">
 <span class="navlink">
-<span class="navlink-label">Next:</span> <a href="chapter-012.html" accesskey="n" rel="next">How it works</a>
+<span class="navlink-label">Next:</span> <a href="chapter-012.html" accesskey="n" rel="next">Workflow: a photo library served from its previews</a>
 </span>
 <span class="navlink">
-<span class="navlink-label">Previous:</span> <a href="chapter-010.html" accesskey="p" rel="previous">Workflow: a photo library served from its previews</a>
+<span class="navlink-label">Previous:</span> <a href="chapter-010.html" accesskey="p" rel="previous">Writable views</a>
 </span>
 </div>
 </nav>
-<h2 data-number="1.9" id="writing-a-plugin"><span
-class="header-section-number">1.9</span> Writing a plugin</h2>
-<p>A plugin is a Rust crate that implements the <code>Plugin</code>
-trait from <code>diskproxy-core</code> and is linked into the
-application at build time. There is no dynamic loading: adding a plugin
-means adding a crate and registering it in <code>src/main.rs</code>. The
-<a
-href="https://github.com/firstpair/diskproxy/blob/6ea6c13d71cfda5fe34a35e1e92a8835c0c5059e/docs/plugins.md">plugin
-guide</a> gives every step, and the <a
-href="https://github.com/firstpair/diskproxy/blob/6ea6c13d71cfda5fe34a35e1e92a8835c0c5059e/examples/hide-plugin/README.md">hide
-example</a> is a complete, compiled reference with a patch that
-registers it.</p>
-<h3 data-number="1.9.1" id="the-trait"><span
-class="header-section-number">1.9.1</span> The trait</h3>
-<div class="sourceCode" id="cb1"><pre
-class="sourceCode rust"><code class="sourceCode rust"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="kw">pub</span> <span class="kw">trait</span> Plugin<span class="op">:</span> <span class="bu">Send</span> <span class="op">+</span> <span class="bu">Sync</span> <span class="op">{</span></span>
-<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a>    <span class="kw">fn</span> identity(<span class="op">&amp;</span><span class="kw">self</span>) <span class="op">-&gt;</span> <span class="dt">Option</span><span class="op">&lt;</span><span class="dt">String</span><span class="op">&gt;</span> <span class="op">{</span> <span class="cn">None</span> <span class="op">}</span></span>
-<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a>    <span class="kw">fn</span> visible(<span class="op">&amp;</span><span class="kw">self</span><span class="op">,</span> _parts<span class="op">:</span> <span class="op">&amp;</span>[<span class="dt">String</span>]<span class="op">,</span> _metadata<span class="op">:</span> <span class="op">&amp;</span>Metadata) <span class="op">-&gt;</span> <span class="dt">Result</span><span class="op">&lt;</span><span class="dt">bool</span><span class="op">&gt;</span> <span class="op">{</span> <span class="cn">Ok</span>(<span class="cn">true</span>) <span class="op">}</span></span>
-<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a>    <span class="kw">fn</span> mtime(<span class="op">&amp;</span><span class="kw">self</span><span class="op">,</span> _parts<span class="op">:</span> <span class="op">&amp;</span>[<span class="dt">String</span>]<span class="op">,</span> metadata<span class="op">:</span> <span class="op">&amp;</span>Metadata) <span class="op">-&gt;</span> <span class="dt">Result</span><span class="op">&lt;</span><span class="dt">i64</span><span class="op">&gt;</span> <span class="op">{</span> <span class="cn">Ok</span>(metadata<span class="op">.</span>mtime()) <span class="op">}</span></span>
-<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a>    <span class="kw">fn</span> compose(<span class="op">&amp;</span><span class="kw">self</span><span class="op">,</span> _parts<span class="op">:</span> <span class="op">&amp;</span>[<span class="dt">String</span>]<span class="op">,</span> _file<span class="op">:</span> <span class="op">&amp;</span>File) <span class="op">-&gt;</span> <span class="dt">Result</span><span class="op">&lt;</span><span class="dt">Option</span><span class="op">&lt;</span><span class="dt">Vec</span><span class="op">&lt;</span>Piece<span class="op">&gt;&gt;&gt;</span> <span class="op">{</span> <span class="cn">Ok</span>(<span class="cn">None</span>) <span class="op">}</span></span>
-<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a>    <span class="kw">fn</span> written(<span class="op">&amp;</span><span class="kw">self</span><span class="op">,</span> _parts<span class="op">:</span> <span class="op">&amp;</span>[<span class="dt">String</span>]<span class="op">,</span> _file<span class="op">:</span> <span class="op">&amp;</span>File) <span class="op">-&gt;</span> <span class="dt">Result</span><span class="op">&lt;</span>()<span class="op">&gt;</span> <span class="op">{</span> <span class="cn">Ok</span>(()) <span class="op">}</span></span>
-<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a><span class="op">}</span></span></code></pre></div>
-<p>Every method has a default, so a plugin overrides only what it needs.
-<code>parts</code> are the path components relative to the source
-root.</p>
-<table>
-<colgroup>
-<col style="width: 33%" />
-<col style="width: 33%" />
-<col style="width: 33%" />
-</colgroup>
-<thead>
-<tr>
-<th>Hook</th>
-<th>Return</th>
-<th>Meaning</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>identity</code></td>
-<td>Stable string or <code>None</code></td>
-<td>Seeds the disk’s volume serial; <code>None</code> derives it from
-the source</td>
-</tr>
-<tr>
-<td><code>visible</code></td>
-<td><code>true</code> or <code>false</code></td>
-<td>Shows or hides an entry, on direct opens as well as in listings</td>
-</tr>
-<tr>
-<td><code>mtime</code></td>
-<td>Unix seconds</td>
-<td>The modification time to present; the source keeps its own</td>
-</tr>
-<tr>
-<td><code>compose</code></td>
-<td>Pieces or <code>None</code></td>
-<td>Presents a file as a sequence of pieces; <code>None</code> serves it
-unchanged</td>
-</tr>
-<tr>
-<td><code>written</code></td>
-<td><code>()</code></td>
-<td>A client wrote this file on a writable view; <code>file</code> holds
-its new bytes</td>
-</tr>
-</tbody>
-</table>
-<p>An error aborts the operation; it is never a request to fall back to
-the unmodified entry. Keep the hooks deterministic for a session,
-because the disk is built from one snapshot of the tree. Plugins are
-shared across threads.</p>
-<h3 data-number="1.9.2" id="composing-files"><span
-class="header-section-number">1.9.2</span> Composing files</h3>
-<div class="sourceCode" id="cb2"><pre
-class="sourceCode rust"><code class="sourceCode rust"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="kw">pub</span> <span class="kw">enum</span> Piece <span class="op">{</span></span>
-<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a>    Bytes(<span class="dt">Vec</span><span class="op">&lt;</span><span class="dt">u8</span><span class="op">&gt;</span>)<span class="op">,</span></span>
-<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a>    Own <span class="op">{</span> offset<span class="op">:</span> <span class="dt">u64</span><span class="op">,</span> length<span class="op">:</span> <span class="dt">u64</span> <span class="op">},</span></span>
-<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a>    Other <span class="op">{</span></span>
-<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a>        source<span class="op">:</span> Arc<span class="op">&lt;</span>Source<span class="op">&gt;,</span></span>
-<span id="cb2-6"><a href="#cb2-6" aria-hidden="true" tabindex="-1"></a>        path<span class="op">:</span> Arc<span class="op">&lt;</span><span class="dt">str</span><span class="op">&gt;,</span></span>
-<span id="cb2-7"><a href="#cb2-7" aria-hidden="true" tabindex="-1"></a>        offset<span class="op">:</span> <span class="dt">u64</span><span class="op">,</span></span>
-<span id="cb2-8"><a href="#cb2-8" aria-hidden="true" tabindex="-1"></a>        length<span class="op">:</span> <span class="dt">u64</span><span class="op">,</span></span>
-<span id="cb2-9"><a href="#cb2-9" aria-hidden="true" tabindex="-1"></a>        stamp<span class="op">:</span> <span class="dt">Option</span><span class="op">&lt;</span>Stamp<span class="op">&gt;,</span></span>
-<span id="cb2-10"><a href="#cb2-10" aria-hidden="true" tabindex="-1"></a>    <span class="op">},</span></span>
-<span id="cb2-11"><a href="#cb2-11" aria-hidden="true" tabindex="-1"></a><span class="op">}</span></span></code></pre></div>
-<p><code>Bytes</code> are generated by the plugin, <code>Own</code> is a
-range of the file being presented, and <code>Other</code> is a range of
-a file under another root. Open that root with <code>Source::new</code>,
-so it gets the same read-only, no-symlink rules. The core checks every
-range against the file’s size, records each file’s size and modification
-time, and refuses reads once either changes. When the plugin already
-knows another file’s size and modification time, it can pass them as
-<code>stamp</code>, so the scan doesn’t open that file; the stamp is
-still checked on every read. Composed files are served identically by
-all three transports.</p>
-<h3 data-number="1.9.3" id="receiving-writes"><span
-class="header-section-number">1.9.3</span> Receiving writes</h3>
-<p><code>written</code> is called with a read-only handle to the new
-bytes: from the NFS overlay, or from the mounted volume for a harvested
-shadow-file view. The source is never written, and the handle cannot
-write to it. A plugin that saves something should save it outside the
-source, as the previews plugin’s ratings folder must be, and should
-treat the call as untrusted input: temporary files, partial saves and
-files the application writes for its own purposes all arrive here.</p>
-<h3 data-number="1.9.4" id="registering-and-testing"><span
-class="header-section-number">1.9.4</span> Registering and testing</h3>
-<p>To register a plugin, add its crate to the workspace and the
-application’s dependencies, add its name to <code>PluginName</code> in
-<code>src/main.rs</code>, validate its <code>plugins.&lt;name&gt;</code>
-settings before any setup I/O, and add a construction arm that returns
-the source, the plugin and its startup information. Test with synthetic
-folders only, through both direct opens and listings, and confirm that
-the source files are unchanged afterwards.</p>
-<p>A plugin is trusted code. The trait is a policy boundary, not a
-sandbox: a plugin can call any API Rust allows, so keep its own writes
-small, explicit and documented.</p>
+<h2 data-number="1.9"
+id="workflow-camera-card-ingest-with-photo-mechanic-plus"><span
+class="header-section-number">1.9</span> Workflow: camera-card ingest
+with Photo Mechanic Plus</h2>
+<p>This is the workflow diskproxy was first written for. The <a
+href="https://github.com/firstpair/diskproxy/blob/c9d1fd1ad5dd0b315543b4b5eb052f7cb23eeb69/plugins/pmp/README.md">PMP
+guide</a> is the complete reference.</p>
+<h3 data-number="1.9.1" id="the-problem"><span
+class="header-section-number">1.9.1</span> The problem</h3>
+<p>Photo Mechanic Plus records each ingested file’s path, size and
+modification time, and its incremental ingest copies only files it has
+not seen. On the exFAT cards examined, the camera wrote modification
+times without a valid timezone offset, so macOS interpreted them in
+whatever timezone the Mac was in when the card was mounted. After
+travelling, the same photo had a different modification time, Photo
+Mechanic thought it was new, and it copied the whole card again.</p>
+<h3 data-number="1.9.2" id="the-fix"><span
+class="header-section-number">1.9.2</span> The fix</h3>
+<p>The <code>pmp</code> plugin presents the card as a virtual disk with
+a fixed timestamp convention. For a new card the convention is UTC; a
+card with existing history keeps the convention its history was made in,
+for example Pacific time. The plugin works out the offset the card was
+mounted in from up to three sampled photos, recorded in a small profile
+on the card when it is registered. The photos themselves, and their EXIF
+capture times, are never changed.</p>
+<h3 data-number="1.9.3" id="setting-up"><span
+class="header-section-number">1.9.3</span> Setting up</h3>
+<div class="sourceCode" id="cb1"><pre class="sourceCode sh"><code class="sourceCode bash"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="ex">scripts/install.sh</span> <span class="at">--config</span> configs/pmp.json</span></code></pre></div>
+<p>The example config expects the card at <code>/Volumes/LEICA M</code>;
+edit <code>source</code> for another card name, or pass the path to
+<code>start</code>.</p>
+<h3 data-number="1.9.4" id="registering-a-new-card"><span
+class="header-section-number">1.9.4</span> Registering a new card</h3>
+<p>Finish any EXIF corrections first, then, with the card mounted in the
+timezone the Mac is currently set to:</p>
+<div class="sourceCode" id="cb2"><pre class="sourceCode sh"><code class="sourceCode bash"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="ex">diskproxy-server</span></span></code></pre></div>
+<p>With no command, <code>diskproxy-server</code> registers the card: it
+writes <code>.pmingest.dat</code> if it is absent and the profile
+<code>.pmp-ingest-proxy.json</code> to the card, and exits. If you run
+<code>diskproxy start</code> on an unregistered card, it simply prints
+<code>Run diskproxy-server.</code> If the Mac’s timezone changed while
+the card stayed mounted, remount it first, or give the offset it was
+mounted in:</p>
+<div class="sourceCode" id="cb3"><pre class="sourceCode sh"><code class="sourceCode bash"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="ex">diskproxy-server</span> <span class="at">--source-offset</span><span class="op">=</span>+09:00</span></code></pre></div>
+<p>Running the command again on a registered card reuses its profile
+unchanged. <code>--register</code> deliberately refreshes the samples
+after reviewed edits.</p>
+<h3 data-number="1.9.5" id="ingesting"><span
+class="header-section-number">1.9.5</span> Ingesting</h3>
+<div class="sourceCode" id="cb4"><pre class="sourceCode sh"><code class="sourceCode bash"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a><span class="ex">diskproxy</span> start</span>
+<span id="cb4-2"><a href="#cb4-2" aria-hidden="true" tabindex="-1"></a><span class="co"># In Photo Mechanic Plus, ingest from the PMP Pacific volume under Disks.</span></span>
+<span id="cb4-3"><a href="#cb4-3" aria-hidden="true" tabindex="-1"></a><span class="ex">diskproxy</span> stop</span></code></pre></div>
+<p>Then eject the card. The volume is called <code>PMP Pacific</code>
+for compatibility, even for UTC cards; the label does not set the
+convention.</p>
+<p>To hide photos already ingested, rather than relying on Photo
+Mechanic’s incremental history:</p>
+<div class="sourceCode" id="cb5"><pre class="sourceCode sh"><code class="sourceCode bash"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a><span class="ex">diskproxy</span> start <span class="at">--set</span> plugins.pmp.hide_ingested=true</span></code></pre></div>
+<p>The history is read once at start, so restart the view to hide newly
+ingested files.</p>
 </body>
 </html>

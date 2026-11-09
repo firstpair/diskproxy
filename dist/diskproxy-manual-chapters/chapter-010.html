@@ -7,7 +7,7 @@
   <meta name="author" content="FirstPair contributors" />
   <meta name="dcterms.date" content="2026-11-09" />
   <meta name="description" content="A complete guide to diskproxy, from everyday commands and configuration to writable views, camera-card ingest, preview libraries and writing plugins." />
-  <title>Workflow: a photo library served from its previews</title>
+  <title>Writable views</title>
   <style>
     div.sitenav { display: flex; flex-direction: row; flex-wrap: wrap; }
     span.navlink { flex: 1; }
@@ -112,49 +112,21 @@
 </div>
 <div class="sitenav">
 <span class="navlink">
-<span class="navlink-label">Next:</span> <a href="chapter-011.html" accesskey="n" rel="next">Writing a plugin</a>
+<span class="navlink-label">Next:</span> <a href="chapter-011.html" accesskey="n" rel="next">Workflow: camera-card ingest with Photo Mechanic Plus</a>
 </span>
 <span class="navlink">
-<span class="navlink-label">Previous:</span> <a href="chapter-009.html" accesskey="p" rel="previous">Workflow: camera-card ingest with Photo Mechanic Plus</a>
+<span class="navlink-label">Previous:</span> <a href="chapter-009.html" accesskey="p" rel="previous">Choosing a transport</a>
 </span>
 </div>
 </nav>
-<h2 data-number="1.8"
-id="workflow-a-photo-library-served-from-its-previews"><span
-class="header-section-number">1.8</span> Workflow: a photo library
-served from its previews</h2>
-<p>The <code>previews</code> plugin builds a browsable library out of
-files that already exist. Its <a
-href="https://github.com/firstpair/diskproxy/blob/6ea6c13d71cfda5fe34a35e1e92a8835c0c5059e/plugins/previews/README.md">guide</a>
-is the complete reference; this section walks through a whole setup.</p>
-<h3 data-number="1.8.1" id="the-idea"><span
-class="header-section-number">1.8.1</span> The idea</h3>
-<p>Suppose your originals are offline, but you have two smaller things
-for every photo:</p>
-<ul>
-<li>a stand-in: a small DNG such as a Lightroom Smart Preview, which
-holds the photo’s metadata and a reduced raw image, but embeds only a
-tiny thumbnail;</li>
-<li>a preview JPEG at a useful size, for example from an image browser’s
-preview cache, under a different name in a different folder.</li>
-</ul>
-<p>An application that shows embedded previews, such as Photo Mechanic
-or Quick Look, shows only the thumbnail in the stand-in. The previews
-plugin serves each stand-in with its preview JPEG embedded, without
-writing or copying either file.</p>
-<h3 data-number="1.8.2" id="building-the-stand-in-tree"><span
-class="header-section-number">1.8.2</span> Building the stand-in
-tree</h3>
-<p>Arrange the stand-ins under the folder layout you want to browse,
-usually the originals’ layout. On APFS, use clones (<code>cp -c</code>)
-rather than copies: a clone shares its blocks with the original, so even
-a million stand-ins cost almost no disk space, and writing to a clone
-never changes the file it came from.</p>
-<p>Then write a map file, one line per file to change, as a path
-relative to the tree followed by tab-separated fields:</p>
-<pre class="text"><code>2024/trip/IMG_0001.DNG  preview=a1/IMG_0001.jpg
-2024/trip/IMG_0002.JPG  orientation=6   datetime=2024:10:02 04:45:42
-2024/trip/IMG_0003.JPG  metadata=0/0A1B/0A1B2C3D.dng</code></pre>
+<h2 data-number="1.8" id="writable-views"><span
+class="header-section-number">1.8</span> Writable views</h2>
+<p>Some applications write metadata into the files they show: Photo
+Mechanic, for example, writes ratings, color labels and flags into JPEGs
+and DNGs. A read-only disk makes those writes fail. A writable view lets
+them succeed without touching the source, and passes each written file
+to the plugin’s <code>written</code> hook, which decides what to keep.
+Two ways are available.</p>
 <table>
 <colgroup>
 <col style="width: 33%" />
@@ -163,200 +135,76 @@ relative to the tree followed by tab-separated fields:</p>
 </colgroup>
 <thead>
 <tr>
-<th>Key</th>
-<th>For</th>
-<th>Value</th>
+<th></th>
+<th>Shadow file</th>
+<th>NFS</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td><code>preview</code></td>
-<td>DNG, TIFF</td>
-<td>The preview JPEG, relative to <code>preview_root</code></td>
+<td>Enable with</td>
+<td><code>"writable": true</code> (disk mode)</td>
+<td><code>"mode": "nfs"</code></td>
 </tr>
 <tr>
-<td><code>preview_size</code></td>
-<td>DNG, TIFF</td>
-<td>Optional: the JPEG’s size in bytes</td>
+<td>Status</td>
+<td>Ready</td>
+<td>Experimental</td>
 </tr>
 <tr>
-<td><code>preview_mtime</code></td>
-<td>DNG, TIFF</td>
-<td>Optional: its modification time,
-<code>SECONDS.NANOSECONDS</code></td>
+<td>Mounted at</td>
+<td><code>/Volumes/LABEL</code></td>
+<td><code>~/Volumes/LABEL</code>, or <code>mountpoint</code></td>
 </tr>
 <tr>
-<td><code>preview_dims</code></td>
-<td>DNG, TIFF</td>
-<td>Optional: its pixel size, <code>WIDTHxHEIGHT</code></td>
+<td>Written bytes go to</td>
+<td><code>disk.shadow</code> in the session folder</td>
+<td><code>overlay/</code> in the session folder</td>
 </tr>
 <tr>
-<td><code>metadata</code></td>
-<td>JPEG</td>
-<td>A DNG whose EXIF and XMP the JPEG is served with, relative to
-<code>metadata_root</code></td>
-</tr>
-<tr>
-<td><code>orientation</code></td>
-<td>JPEG</td>
-<td>EXIF orientation, 1 to 8</td>
-</tr>
-<tr>
-<td><code>datetime</code></td>
-<td>JPEG</td>
-<td>Capture time, <code>YYYY:MM:DD HH:MM:SS</code></td>
+<td>The plugin sees a write</td>
+<td>Within about a minute, and on stop</td>
+<td>About two seconds after the last write, and on stop</td>
 </tr>
 </tbody>
 </table>
-<p>With all three optional preview fields, the server builds the disk
-without opening a million preview JPEGs, which makes startup much
-faster. They are still checked against the real file on every read.</p>
-<h3 data-number="1.8.3" id="what-gets-served"><span
-class="header-section-number">1.8.3</span> What gets served</h3>
-<p>For a DNG or TIFF with <code>preview=</code>, every original byte
-stays at its original offset. The plugin appends a copy of the first
-image directory (IFD0) after the original data, adds one entry pointing
-at a new reduced-resolution image (a SubIFD), and appends the JPEG. Only
-the 8-byte TIFF header is changed, to point at the copied directory.
-Applications that show embedded previews then find the large JPEG;
-raw-capable applications still read the original image data. An existing
-large preview is kept and stays first.</p>
-<p>For a JPEG, <code>metadata=</code> adds the EXIF and XMP of a DNG or
-TIFF, typically the photo’s Lightroom Smart Preview or an EXIF-only TIFF
-extracted with ExifTool, so the JPEG shows its camera, lens, exposure,
-serial number and GPS position. The plugin rebuilds the EXIF in a new
-segment, leaving out the DNG’s image-structure tags and maker note and
-adding the JPEG’s own pixel size. It reads the XMP segment’s contents
-from the DNG in place on every read, so they take no memory. The rebuilt
-EXIF, about 1.3 KB per JPEG, is kept in memory with the rest of the
-layout. <code>orientation=</code> and <code>datetime=</code> set
-Orientation and DateTimeOriginal in that segment, overriding the DNG, so
-portraits display upright and photos sort by capture time; they also
-work on their own.</p>
-<p>A JPEG that already has EXIF, such as a Lightroom preview with
-Orientation and color space, has that segment replaced by the rebuilt
-one. The JPEG’s own tags win over the DNG’s, since they describe the
-preview’s pixels, and the map’s values win over both. Tags that describe
-pixels (color space, components, compression, pixel size, gamma) are
-never taken from the metadata file, even when the JPEG lacks them: a
-camera original’s sRGB says nothing about a preview rendered in Adobe
-RGB. Its own XMP is kept unless the DNG has XMP, which then replaces
-it.</p>
-<p>Files not in the map are served unchanged. A mapped file that cannot
-be composed, because its JPEG is missing or the DNG has an unexpected
-structure, is served unchanged with a warning in the server log, rather
-than failing the disk.</p>
-<h3 data-number="1.8.4" id="the-config"><span
-class="header-section-number">1.8.4</span> The config</h3>
-<div class="sourceCode" id="cb2"><pre
-class="sourceCode json"><code class="sourceCode json"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="fu">{</span></span>
-<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;source&quot;</span><span class="fu">:</span> <span class="st">&quot;/absolute/path/to/stand-in-tree&quot;</span><span class="fu">,</span></span>
-<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;plugin&quot;</span><span class="fu">:</span> <span class="st">&quot;previews&quot;</span><span class="fu">,</span></span>
-<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;label&quot;</span><span class="fu">:</span> <span class="st">&quot;Library&quot;</span><span class="fu">,</span></span>
-<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;writable&quot;</span><span class="fu">:</span> <span class="kw">true</span><span class="fu">,</span></span>
-<span id="cb2-6"><a href="#cb2-6" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;plugins&quot;</span><span class="fu">:</span> <span class="fu">{</span></span>
-<span id="cb2-7"><a href="#cb2-7" aria-hidden="true" tabindex="-1"></a>    <span class="dt">&quot;previews&quot;</span><span class="fu">:</span> <span class="fu">{</span></span>
-<span id="cb2-8"><a href="#cb2-8" aria-hidden="true" tabindex="-1"></a>      <span class="dt">&quot;map&quot;</span><span class="fu">:</span> <span class="st">&quot;/absolute/path/to/previews.tsv&quot;</span><span class="fu">,</span></span>
-<span id="cb2-9"><a href="#cb2-9" aria-hidden="true" tabindex="-1"></a>      <span class="dt">&quot;preview_root&quot;</span><span class="fu">:</span> <span class="st">&quot;/absolute/path/to/preview-jpegs&quot;</span><span class="fu">,</span></span>
-<span id="cb2-10"><a href="#cb2-10" aria-hidden="true" tabindex="-1"></a>      <span class="dt">&quot;metadata_root&quot;</span><span class="fu">:</span> <span class="st">&quot;/absolute/path/to/Catalog Smart Previews.lrdata&quot;</span><span class="fu">,</span></span>
-<span id="cb2-11"><a href="#cb2-11" aria-hidden="true" tabindex="-1"></a>      <span class="dt">&quot;ratings&quot;</span><span class="fu">:</span> <span class="st">&quot;/absolute/path/to/ratings&quot;</span></span>
-<span id="cb2-12"><a href="#cb2-12" aria-hidden="true" tabindex="-1"></a>    <span class="fu">}</span></span>
-<span id="cb2-13"><a href="#cb2-13" aria-hidden="true" tabindex="-1"></a>  <span class="fu">}</span></span>
-<span id="cb2-14"><a href="#cb2-14" aria-hidden="true" tabindex="-1"></a><span class="fu">}</span></span></code></pre></div>
-<p><code>metadata_root</code> is needed only when the map has
-<code>metadata=</code> fields. For a very large library,
-<code>metadata_store</code> can name one SQLite file holding all the
-metadata files as blobs in a table
-<code>stubs(key TEXT PRIMARY KEY, exif BLOB)</code>, with
-<code>metadata=</code> giving the key; see the previews plugin guide.
-Leave out <code>writable</code> and <code>ratings</code> for a purely
-read-only library. Start it with
-<code>diskproxy --config library.json start</code>. Check one file
-through the mounted volume:</p>
-<div class="sourceCode" id="cb3"><pre class="sourceCode sh"><code class="sourceCode bash"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="ex">exiftool</span> <span class="at">-b</span> <span class="at">-PreviewImage</span> /Volumes/Library/2024/trip/IMG_0001.DNG <span class="kw">|</span> <span class="fu">wc</span> <span class="at">-c</span></span></code></pre></div>
-<p>The result should be the size of its preview JPEG.</p>
-<h3 data-number="1.8.5" id="capturing-ratings"><span
-class="header-section-number">1.8.5</span> Capturing ratings</h3>
-<p>With <code>ratings</code> set and a writable view, the plugin reads
-each written file’s XMP metadata and keeps exactly four properties:</p>
-<table>
-<thead>
-<tr>
-<th>Property</th>
-<th>Meaning</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>xmp:Rating</code></td>
-<td>Star rating</td>
-</tr>
-<tr>
-<td><code>xmp:Label</code></td>
-<td>Color label name</td>
-</tr>
-<tr>
-<td><code>photomechanic:ColorClass</code></td>
-<td>Photo Mechanic’s color class</td>
-</tr>
-<tr>
-<td><code>photomechanic:Tagged</code></td>
-<td>Photo Mechanic’s tag (flag)</td>
-</tr>
-</tbody>
-</table>
-<p>Everything else an application writes is ignored. That is deliberate.
-Photo Mechanic, for example, sets creation dates from a file’s
-modification time when a JPEG has none, and copies the stand-in’s
-metadata into its XMP. Keeping its whole XMP block would carry those
-invented values back towards your originals.</p>
-<p>The metadata is found in a JPEG’s XMP segment, a TIFF or DNG’s XMP
-tag, or an <code>.xmp</code>/<code>.XMP</code> sidecar. Each photo gets
-a minimal sidecar in the ratings folder, mirroring the tree:</p>
-<table>
-<colgroup>
-<col style="width: 50%" />
-<col style="width: 50%" />
-</colgroup>
-<thead>
-<tr>
-<th>Written file</th>
-<th>Sidecar</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>X.DNG</code>, or its sidecar <code>X.XMP</code></td>
-<td><code>X.xmp</code></td>
-</tr>
-<tr>
-<td><code>X.JPG</code></td>
-<td><code>X.JPG.xmp</code>, so a JPEG never collides with a DNG of the
-same name</td>
-</tr>
-<tr>
-<td>A stand-in served as <code>X.JPG.dng</code> or
-<code>X.RW2.dng</code></td>
-<td>Under the original’s name: <code>X.JPG.xmp</code>,
-<code>X.xmp</code></td>
-</tr>
-</tbody>
-</table>
-<p>A sidecar is rewritten only when a value changed. Every change is
-appended to <code>JOURNAL.jsonl</code> in the ratings folder, one JSON
-object per line:</p>
-<div class="sourceCode" id="cb4"><pre
-class="sourceCode json"><code class="sourceCode json"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a><span class="fu">{</span><span class="dt">&quot;time_unix&quot;</span><span class="fu">:</span><span class="fl">1793718040.97</span><span class="fu">,</span><span class="dt">&quot;written&quot;</span><span class="fu">:</span><span class="st">&quot;2015/February/IMG_4193.dng&quot;</span><span class="fu">,</span></span>
-<span id="cb4-2"><a href="#cb4-2" aria-hidden="true" tabindex="-1"></a> <span class="dt">&quot;sidecar&quot;</span><span class="fu">:</span><span class="st">&quot;2015/February/IMG_4193.xmp&quot;</span><span class="fu">,</span></span>
-<span id="cb4-3"><a href="#cb4-3" aria-hidden="true" tabindex="-1"></a> <span class="dt">&quot;fields&quot;</span><span class="fu">:{</span><span class="dt">&quot;xmp:Rating&quot;</span><span class="fu">:</span><span class="st">&quot;2&quot;</span><span class="fu">,</span><span class="dt">&quot;xmp:Label&quot;</span><span class="fu">:</span><span class="st">&quot;Red&quot;</span><span class="fu">,</span><span class="dt">&quot;photomechanic:ColorClass&quot;</span><span class="fu">:</span><span class="st">&quot;1&quot;</span><span class="fu">,</span><span class="dt">&quot;photomechanic:Tagged&quot;</span><span class="fu">:</span><span class="st">&quot;False&quot;</span><span class="fu">},</span></span>
-<span id="cb4-4"><a href="#cb4-4" aria-hidden="true" tabindex="-1"></a> <span class="dt">&quot;previous&quot;</span><span class="fu">:{}}</span></span></code></pre></div>
-<p><code>written</code> is the file the application wrote,
-<code>sidecar</code> the file updated in the ratings folder, and
-<code>previous</code> the values before this change. The ratings folder
-must be outside the served tree; the plugin refuses to start
-otherwise.</p>
-<p>These sidecars use the Adobe naming convention, so a DNG’s sidecar
-can later sit beside its original, where Lightroom or another
-application can read it.</p>
+<p>Either way, the application reads its own changes back during the
+session, and <code>diskproxy stop</code> deletes the written bytes after
+the final capture.</p>
+<h3 data-number="1.8.1" id="shadow-file-mode"><span
+class="header-section-number">1.8.1</span> Shadow-file mode</h3>
+<p>The disk is attached with <code>hdiutil attach -shadow</code>. macOS
+then treats it as writable, but every changed block goes to the shadow
+file, and the served image stays read-only. Because the disk delivers
+blocks rather than files, diskproxy cannot see writes directly. Instead,
+a harvester process follows filesystem events on the mounted volume, and
+every minute passes the changed files to the plugin. It reads each file
+from the mounted volume, so it sees the application’s version.</p>
+<p><code>diskproxy stop</code> asks the harvester for a final pass and
+waits up to two minutes for it before detaching. If the harvester is not
+running, <code>stop</code> first walks the whole volume once for files
+modified since mounting, so no change is lost. If either step fails, the
+disk stays mounted and <code>stop</code> points at the harvester
+log.</p>
+<p>The harvester can also be run by hand, for example after a crash left
+a writable volume mounted:</p>
+<div class="sourceCode" id="cb1"><pre class="sourceCode sh"><code class="sourceCode bash"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="ex">diskproxy-server</span> harvest <span class="at">--config</span> view.json <span class="at">--volume</span> /Volumes/VIEW <span class="dt">\</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">--since</span> EPOCH <span class="at">--once</span></span></code></pre></div>
+<p><code>--since</code> walks the volume for files modified at or after
+that Unix time; <code>--once</code> returns after that walk instead of
+watching. Without <code>--once</code> it keeps watching, every
+<code>--interval</code> seconds (default 60), until the
+<code>--stop-file</code> appears. Hidden housekeeping folders such as
+<code>.fseventsd</code> are skipped.</p>
+<h3 data-number="1.8.2" id="nfs-mode-1"><span
+class="header-section-number">1.8.2</span> NFS mode</h3>
+<p>The first write to a served file copies its presented bytes into the
+overlay folder; from then on the client reads and writes that copy. New
+files, new folders, renames and deletions are recorded in the overlay as
+well, so an application that saves through a temporary file and a rename
+works normally. Two seconds after the last write to a file, the file is
+passed to the plugin. When the server receives <code>SIGTERM</code>,
+which is how <code>diskproxy stop</code> ends it, it passes everything
+still pending before exiting.</p>
 </body>
 </html>
