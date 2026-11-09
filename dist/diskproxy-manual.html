@@ -157,8 +157,8 @@ and no kernel extension, FUSE driver or Python runtime is needed.</p>
 developers who want to adapt it. It covers installation, everyday
 commands, every configuration key, the three transports, writable views,
 two complete workflows, writing a plugin, the internal architecture,
-limits and troubleshooting. The <a href="https://github.com/firstpair/diskproxy/blob/38d97513e10e360b3194470c797e41cd421a46e9/README.md">README</a>
-is the short version; the <a href="https://github.com/firstpair/diskproxy/blob/38d97513e10e360b3194470c797e41cd421a46e9/docs/blog/diskproxy/post.md">project
+limits and troubleshooting. The <a href="https://github.com/firstpair/diskproxy/blob/67dc636b8012a275e9b493c94708298e30b8447a/README.md">README</a>
+is the short version; the <a href="https://github.com/firstpair/diskproxy/blob/67dc636b8012a275e9b493c94708298e30b8447a/docs/blog/diskproxy/post.md">project
 story</a> explains how the design came about.</p>
 <h2 data-number="1.1" id="where-it-fits"><span class="header-section-number">1.1</span> Where it fits</h2>
 <p>This book is one of nine on the FirstPair photo tools. Each owns one
@@ -263,7 +263,8 @@ old and new data. Stop and start again after an intended change.</p>
 <h2 data-number="1.3" id="new-in-1.1"><span class="header-section-number">1.3</span> New in 1.1</h2>
 <p>This edition covers diskproxy 0.3.0. Since the first edition, the
 <code>previews</code> plugin has learned to give preview JPEGs their
-camera metadata:</p>
+camera metadata and to keep the ratings given to them, and a photo
+library and a camera card can be served at once:</p>
 <ul>
 <li><strong>Metadata splicing.</strong> A map entry
 <code>metadata=</code> names a DNG or an EXIF-only TIFF, and the JPEG is
@@ -285,6 +286,19 @@ metadata file.</li>
 <li><strong>Dates exFAT cannot hold</strong> no longer stop the disk:
 they are shown as the nearest time it can hold, with a warning naming
 the file.</li>
+<li><strong>Ratings that last.</strong> Clearing a rating, label or flag
+is captured too, and captured ratings are served back in the JPEGs and
+the stand-in DNGs after a restart, so an app reading the files sees what
+was written (<a href="#capturing-ratings">Capturing ratings</a>).</li>
+<li><strong>Several views at once.</strong> Each config file has its own
+view, so a photo library and a camera card can be mounted side by side,
+each started and stopped with its own <code>--config</code> (<a href="#everyday-use">Everyday use</a>).</li>
+<li><strong>Whichever card is mounted.</strong> The card ingest no
+longer needs the card’s name: when the configured card isn’t mounted,
+diskproxy uses the one camera card that is (<a href="#setting-up">Setting up</a>).</li>
+<li><strong>Every camera file gets the corrected time,</strong> videos
+and thumbnails included, and a card whose ingests span a daylight-saving
+change is covered as well as one that travelled (<a href="#the-problem">The problem</a>).</li>
 </ul>
 <p>Two libraries built this way are described under <a href="#two-libraries-served-from-previews">Two libraries</a>.</p>
 <h2 data-number="1.4" id="installing"><span class="header-section-number">1.4</span> Installing</h2>
@@ -569,7 +583,7 @@ and applications that work with folders rather than disks:</p>
 <code>http://127.0.0.1:PORT/TOKEN/</code>; treat the URL as a password.
 It implements <code>OPTIONS</code>, <code>PROPFIND</code> with depth 0
 or 1, <code>GET</code> and <code>HEAD</code> with single byte ranges,
-and rejects every other method with <code>403</code>. The <a href="https://github.com/firstpair/diskproxy/blob/38d97513e10e360b3194470c797e41cd421a46e9/docs/webdav.md">transport
+and rejects every other method with <code>403</code>. The <a href="https://github.com/firstpair/diskproxy/blob/67dc636b8012a275e9b493c94708298e30b8447a/docs/webdav.md">transport
 guide</a> lists the supported properties and limits.</p>
 <h2 data-number="1.8" id="writable-views"><span class="header-section-number">1.8</span> Writable views</h2>
 <p>Some applications write metadata into the files they show: Photo
@@ -657,7 +671,7 @@ which is how <code>diskproxy stop</code> ends it, it passes everything
 still pending before exiting.</p>
 <h2 data-number="1.9" id="workflow-camera-card-ingest-with-photo-mechanic-plus"><span class="header-section-number">1.9</span> Workflow: camera-card ingest
 with Photo Mechanic Plus</h2>
-<p>This is the workflow diskproxy was first written for. The <a href="https://github.com/firstpair/diskproxy/blob/38d97513e10e360b3194470c797e41cd421a46e9/plugins/pmp/README.md">PMP
+<p>This is the workflow diskproxy was first written for. The <a href="https://github.com/firstpair/diskproxy/blob/67dc636b8012a275e9b493c94708298e30b8447a/plugins/pmp/README.md">PMP
 guide</a> is the complete reference.</p>
 <h3 data-number="1.9.1" id="the-problem"><span class="header-section-number">1.9.1</span> The problem</h3>
 <p>Photo Mechanic Plus records each ingested file’s path, size and
@@ -725,7 +739,7 @@ ingested files.</p>
 <h2 data-number="1.10" id="workflow-a-photo-library-served-from-its-previews"><span class="header-section-number">1.10</span> Workflow: a photo library
 served from its previews</h2>
 <p>The <code>previews</code> plugin builds a browsable library out of
-files that already exist. Its <a href="https://github.com/firstpair/diskproxy/blob/38d97513e10e360b3194470c797e41cd421a46e9/plugins/previews/README.md">guide</a>
+files that already exist. Its <a href="https://github.com/firstpair/diskproxy/blob/67dc636b8012a275e9b493c94708298e30b8447a/plugins/previews/README.md">guide</a>
 is the complete reference; this section walks through a whole setup.</p>
 <h3 data-number="1.10.1" id="the-idea"><span class="header-section-number">1.10.1</span> The idea</h3>
 <p>Suppose your originals are offline, but you have two smaller things
@@ -1002,8 +1016,8 @@ in 6,521 folders scanned in 111 seconds on a busy machine (load average
 trait from <code>diskproxy-core</code> and is linked into the
 application at build time. There is no dynamic loading: adding a plugin
 means adding a crate and registering it in <code>src/main.rs</code>. The
-<a href="https://github.com/firstpair/diskproxy/blob/38d97513e10e360b3194470c797e41cd421a46e9/docs/plugins.md">plugin
-guide</a> gives every step, and the <a href="https://github.com/firstpair/diskproxy/blob/38d97513e10e360b3194470c797e41cd421a46e9/examples/hide-plugin/README.md">hide
+<a href="https://github.com/firstpair/diskproxy/blob/67dc636b8012a275e9b493c94708298e30b8447a/docs/plugins.md">plugin
+guide</a> gives every step, and the <a href="https://github.com/firstpair/diskproxy/blob/67dc636b8012a275e9b493c94708298e30b8447a/examples/hide-plugin/README.md">hide
 example</a> is a complete, compiled reference with a patch that
 registers it.</p>
 <h3 data-number="1.11.1" id="the-trait"><span class="header-section-number">1.11.1</span> The trait</h3>

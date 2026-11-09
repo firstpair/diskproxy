@@ -58,7 +58,8 @@
 class="header-section-number">1.3</span> New in 1.1</h2>
 <p>This edition covers diskproxy 0.3.0. Since the first edition, the
 <code>previews</code> plugin has learned to give preview JPEGs their
-camera metadata:</p>
+camera metadata and to keep the ratings given to them, and a photo
+library and a camera card can be served at once:</p>
 <ul>
 <li><strong>Metadata splicing.</strong> A map entry
 <code>metadata=</code> names a DNG or an EXIF-only TIFF, and the JPEG is
@@ -80,6 +81,23 @@ metadata file.</li>
 <li><strong>Dates exFAT cannot hold</strong> no longer stop the disk:
 they are shown as the nearest time it can hold, with a warning naming
 the file.</li>
+<li><strong>Ratings that last.</strong> Clearing a rating, label or flag
+is captured too, and captured ratings are served back in the JPEGs and
+the stand-in DNGs after a restart, so an app reading the files sees what
+was written (<a href="chapter-012.html#capturing-ratings">Capturing
+ratings</a>).</li>
+<li><strong>Several views at once.</strong> Each config file has its own
+view, so a photo library and a camera card can be mounted side by side,
+each started and stopped with its own <code>--config</code> (<a
+href="chapter-007.html#everyday-use">Everyday use</a>).</li>
+<li><strong>Whichever card is mounted.</strong> The card ingest no
+longer needs the card’s name: when the configured card isn’t mounted,
+diskproxy uses the one camera card that is (<a
+href="chapter-011.html#setting-up">Setting up</a>).</li>
+<li><strong>Every camera file gets the corrected time,</strong> videos
+and thumbnails included, and a card whose ingests span a daylight-saving
+change is covered as well as one that travelled (<a
+href="chapter-011.html#the-problem">The problem</a>).</li>
 </ul>
 <p>Two libraries built this way are described under <a
 href="chapter-012.html#two-libraries-served-from-previews">Two
