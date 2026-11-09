@@ -17,16 +17,24 @@ The source tree is served as usual. A map file names the files to change:
   show embedded previews (Photo Mechanic, Quick Look, `exiftool -PreviewImage`)
   then see the large JPEG instead of a small thumbnail, while raw-capable
   applications still read the original image data.
-- **JPEG with `metadata=`:** a JPEG that has no EXIF block is served with the
-  EXIF and XMP of the named DNG, typically the photo's Lightroom Smart Preview:
-  camera, lens, exposure, serial number, GPS, and the DNG's XMP packet. The EXIF
-  is rebuilt in a new segment, without the DNG's image-structure tags and maker
-  note, and gains this JPEG's pixel size. The XMP segment's contents are read
-  from the DNG in place on every read, so it costs no memory.
+- **JPEG with `metadata=`:** the JPEG is served with the EXIF and XMP of the
+  named TIFF or DNG: a photo's Lightroom Smart Preview, or an EXIF-only TIFF
+  such as `exiftool -n -tagsfromfile ORIGINAL -exif:all --makernotes -o X.exif`
+  writes (big- or little-endian). That gives camera, lens, exposure, serial
+  number, GPS and, if the file has one, its XMP packet. The EXIF is rebuilt in a
+  new segment, without the DNG's image-structure tags and maker note, and gains
+  this JPEG's pixel size. The XMP segment's contents are read from the DNG in
+  place on every read, so it costs no memory.
+- **A JPEG that already has EXIF:** its EXIF segments are dropped and replaced by
+  the rebuilt one, which merges both: the JPEG's own tags (Orientation, color
+  space, resolution) win over the DNG's, because they describe the preview's
+  pixels; the DNG's ExifVersion wins, because it describes the tag set. The
+  JPEG's own XMP is kept, unless the DNG has XMP, which then replaces it so there
+  is one packet.
 - **JPEG with `orientation=` and/or `datetime=`:** these set Orientation and
-  DateTimeOriginal in that EXIF segment, overriding the DNG's values, so
-  portrait images display upright and sort by capture time. They work with or
-  without `metadata=`.
+  DateTimeOriginal in the rebuilt EXIF, overriding both the JPEG's and the DNG's
+  values, so portrait images display upright and sort by capture time. They work
+  with or without `metadata=`.
 
 Unmapped files are served unchanged. If a mapped file cannot be composed (its
 preview JPEG is missing, or the DNG has an unexpected structure) it is served
@@ -118,6 +126,7 @@ config; see [Writable views](../../README.md#writable-views).
 
 - Classic TIFF only (not BigTIFF), files under 4 GiB.
 - The preview is added, never replaced; an existing large preview stays first.
-- JPEGs that already contain EXIF are served unchanged.
+- A mapped JPEG whose own EXIF cannot be parsed is served unchanged, with a
+  warning.
 - A metadata DNG's XMP is served as it is, so its `dc:format` still says
   `image/dng`. An XMP packet larger than one JPEG segment (64 KB) is left out.

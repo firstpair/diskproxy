@@ -465,16 +465,22 @@ point at the copied directory. Applications that show embedded previews then
 find the large JPEG; raw-capable applications still read the original image
 data. An existing large preview is kept and stays first.
 
-For a JPEG without EXIF, `metadata=` adds the EXIF and XMP of a DNG, typically
-the photo's Lightroom Smart Preview, so the JPEG shows its camera, lens,
-exposure, serial number and GPS position. The plugin rebuilds the EXIF in a new
+For a JPEG, `metadata=` adds the EXIF and XMP of a DNG or TIFF, typically the
+photo's Lightroom Smart Preview or an EXIF-only TIFF extracted with ExifTool, so
+the JPEG shows its camera, lens, exposure, serial number and GPS position. The plugin rebuilds the EXIF in a new
 segment, leaving out the DNG's image-structure tags and maker note and adding
 the JPEG's own pixel size. It reads the XMP segment's contents from the DNG in
 place on every read, so they take no memory. The rebuilt EXIF, about 1.3 KB
-per JPEG, is kept in memory with the rest of the layout. `orientation=` and `datetime=` set
-Orientation and DateTimeOriginal in that segment, overriding the DNG, so
-portraits display upright and photos sort by capture time; they also work on
-their own. JPEGs that already have EXIF are served unchanged.
+per JPEG, is kept in memory with the rest of the layout. `orientation=` and
+`datetime=` set Orientation and DateTimeOriginal in that segment, overriding the
+DNG, so portraits display upright and photos sort by capture time; they also
+work on their own.
+
+A JPEG that already has EXIF, such as a Lightroom preview with Orientation and
+color space, has that segment replaced by the rebuilt one. The JPEG's own tags
+win over the DNG's, since they describe the preview's pixels, and the map's
+values win over both. Its own XMP is kept unless the DNG has XMP, which then
+replaces it.
 
 Files not in the map are served unchanged. A mapped file that cannot be
 composed, because its JPEG is missing or the DNG has an unexpected structure, is
@@ -699,8 +705,8 @@ the way, so it never detaches a different disk or stops a different process.
   fall between 1980 and 2107. The case-folding table covers ASCII letters only.
   Unsupported names and times fail; they are not rewritten.
 - **Previews plugin:** classic TIFF only (not BigTIFF), files under 4 GiB. A
-  preview is added, never replaced. JPEGs that already contain EXIF are served
-  unchanged. A metadata DNG's XMP is served as it is, so its `dc:format` still
+  preview is added, never replaced. A mapped JPEG whose own EXIF cannot be parsed
+  is served unchanged. A metadata DNG's XMP is served as it is, so its `dc:format` still
   says `image/dng`.
 - **One session at a time** through the launcher.
 - **A stable source:** files changed while served fail to read; restart after

@@ -6,12 +6,14 @@
 //! * `preview=<path under preview_root>` on a DNG/TIFF: serve the file with that
 //!   JPEG appended as an additional reduced-resolution preview SubIFD. The TIFF
 //!   header is repointed at an appended copy of IFD0; every original byte is kept.
-//! * `metadata=<path under metadata_root>` on a JPEG without EXIF: serve it with
-//!   the camera, lens, exposure and GPS EXIF of that DNG (typically the photo's
-//!   Lightroom Smart Preview) and, as an XMP APP1 segment, the DNG's XMP packet,
-//!   read in place from the DNG on every read.
-//! * `orientation=<1..8>` and `datetime=YYYY:MM:DD HH:MM:SS` on a JPEG without
-//!   EXIF: set those tags in the inserted EXIF, overriding the DNG's values.
+//! * `metadata=<path under metadata_root>` on a JPEG: serve it with the camera,
+//!   lens, exposure and GPS EXIF of that TIFF/DNG (a photo's Lightroom Smart
+//!   Preview, or an EXIF-only TIFF written by ExifTool) and, as an XMP APP1
+//!   segment, its XMP packet, read in place on every read. A JPEG's existing
+//!   EXIF segments are replaced by the rebuilt one, its own tags winning over the
+//!   DNG's; its own XMP is replaced only when the DNG has XMP.
+//! * `orientation=<1..8>` and `datetime=YYYY:MM:DD HH:MM:SS` on a JPEG: set
+//!   those tags in the rebuilt EXIF, overriding the JPEG's and the DNG's values.
 //!
 //! Unmapped files are served unchanged. A mapped file that cannot be composed
 //! (missing preview, unexpected structure) is served unchanged with a warning.
@@ -266,20 +268,28 @@ fn read(file: &File, offset: u64, length: usize) -> Result<Vec<u8>> {
 
 /// Reads served from one up-front read of the file's start when possible.
 struct Head<'a> {
-    file: &'a File,
+    /// None when `buf` is all there is, such as one JPEG segment's bytes.
+    file: Option<&'a File>,
     buf: Vec<u8>,
 }
 impl<'a> Head<'a> {
     fn new(file: &'a File, size: u64) -> Result<Self> {
         let buf = read(file, 0, size.min(16384) as usize)?;
-        Ok(Self { file, buf })
+        Ok(Self {
+            file: Some(file),
+            buf,
+        })
+    }
+    fn bytes(buf: Vec<u8>) -> Self {
+        Self { file: None, buf }
     }
     fn get(&self, offset: u64, length: usize) -> Result<Vec<u8>> {
         let end = offset as usize + length;
         if end <= self.buf.len() {
             Ok(self.buf[offset as usize..end].to_vec())
         } else {
-            read(self.file, offset, length)
+            let file = self.file.context("TIFF offset outside the EXIF segment")?;
+            read(file, offset, length)
         }
     }
 }
@@ -521,6 +531,22 @@ impl Field {
     }
 }
 
+impl Field {
+    /// The same value written in byte order `to` instead of `from`.
+    fn in_order(mut self, from: Order, to: Order) -> Self {
+        let unit = match self.typ {
+            3 | 8 => 2,
+            4 | 9 | 11 | 13 | 5 | 10 => 4, // a rational is two 4-byte integers
+            12 => 8,
+            _ => 1,
+        };
+        if from.0 != to.0 && unit > 1 {
+            self.data.chunks_mut(unit).for_each(<[u8]>::reverse);
+        }
+        self
+    }
+}
+
 fn type_size(typ: u16) -> Option<u64> {
     match typ {
         1 | 2 | 6 | 7 => Some(1),
@@ -622,6 +648,29 @@ fn source_metadata(source: &Source, path: &str) -> Result<DngMetadata> {
 fn dng_metadata(file: &File) -> Result<DngMetadata> {
     let stamp = Stamp::of(file)?;
     let head = Head::new(file, stamp.size)?;
+    let t = tiff_metadata(&head, stamp.size, |tag| {
+        IFD0_KEEP.contains(&tag) || tag == CAMERA_SERIAL || tag == LENS_INFO
+    })?;
+    Ok(DngMetadata {
+        order: t.order,
+        ifd0: t.ifd0,
+        exif: t.exif,
+        gps: t.gps,
+        xmp: t.xmp,
+        stamp,
+    })
+}
+
+/// IFD0, EXIF and GPS fields of a classic TIFF, and where its XMP packet is.
+struct TiffMetadata {
+    order: Order,
+    ifd0: Vec<Field>,
+    exif: Vec<Field>,
+    gps: Vec<Field>,
+    xmp: Option<(u64, u64)>,
+}
+
+fn tiff_metadata(head: &Head, size: u64, ifd0_keep: impl Fn(u16) -> bool) -> Result<TiffMetadata> {
     let header = head.get(0, 8)?;
     let o = Order(match &header[..2] {
         b"II" => true,
@@ -630,7 +679,7 @@ fn dng_metadata(file: &File) -> Result<DngMetadata> {
     });
     ensure!(o.u16(&header[2..4]) == 42, "not classic TIFF");
     let ifd0_at = o.u32(&header[4..8]) as u64;
-    let raw = raw_entries(&head, o, ifd0_at)?;
+    let raw = raw_entries(head, o, ifd0_at)?;
     let pointer = |tag| {
         raw.iter()
             .find(|e| e.0 == tag && matches!(e.1, 4 | 13) && e.2 == 1)
@@ -640,28 +689,25 @@ fn dng_metadata(file: &File) -> Result<DngMetadata> {
         .iter()
         .find(|e| e.0 == 700 && matches!(e.1, 1 | 7) && e.2 > 0)
         .map(|e| (o.u32(&e.3) as u64, e.2 as u64))
-        .filter(|&(off, len)| off.checked_add(len).is_some_and(|end| end <= stamp.size));
-    let ifd0 = read_fields(&head, o, ifd0_at, |tag, _| {
-        IFD0_KEEP.contains(&tag) || tag == CAMERA_SERIAL || tag == LENS_INFO
-    })?;
+        .filter(|&(off, len)| off.checked_add(len).is_some_and(|end| end <= size));
+    let ifd0 = read_fields(head, o, ifd0_at, |tag, _| ifd0_keep(tag))?;
     // Pointers and the maker note (whose offsets are its own) are not copied.
     let exif = match pointer(34665) {
-        Some(at) => read_fields(&head, o, at, |tag, typ| {
+        Some(at) => read_fields(head, o, at, |tag, typ| {
             typ != 13 && !matches!(tag, 34665 | 34853 | 37500 | 40965)
         })?,
         None => Vec::new(),
     };
     let gps = match pointer(34853) {
-        Some(at) => read_fields(&head, o, at, |_, typ| typ != 13)?,
+        Some(at) => read_fields(head, o, at, |_, typ| typ != 13)?,
         None => Vec::new(),
     };
-    Ok(DngMetadata {
+    Ok(TiffMetadata {
         order: o,
         ifd0,
         exif,
         gps,
         xmp,
-        stamp,
     })
 }
 
@@ -768,8 +814,11 @@ fn jpeg_with_exif(
     let head = Head::new(file, size)?;
     ensure!(head.get(0, 2)? == [0xff, 0xd8], "not a JPEG");
     let mut pos = 2u64;
-    let mut has_xmp = false;
+    let mut old_xmp: Vec<(u64, u64)> = Vec::new();
     let mut dims = None;
+    // Existing EXIF segments are replaced; the first one's tags are kept.
+    let mut old_exif: Vec<(u64, u64)> = Vec::new();
+    let mut own: Option<TiffMetadata> = None;
     while pos + 4 <= size {
         let m = head.get(pos, 4)?;
         ensure!(m[0] == 0xff, "bad JPEG marker");
@@ -778,13 +827,22 @@ fn jpeg_with_exif(
         }
         let len = u16::from_be_bytes([m[2], m[3]]) as u64;
         if m[1] == 0xe1 && len >= 8 && head.get(pos + 4, 6)? == b"Exif\0\0" {
-            return Ok(None); // already has EXIF; leave it alone
+            if own.is_none() {
+                let tiff = Head::bytes(head.get(pos + 10, len as usize - 8)?);
+                own = Some(
+                    tiff_metadata(&tiff, len - 8, |tag| {
+                        IFD0_KEEP.contains(&tag) || matches!(tag, 282 | 283 | 296)
+                    })
+                    .context("the JPEG's own EXIF")?,
+                );
+            }
+            old_exif.push((pos, pos + 2 + len));
         }
         if m[1] == 0xe1
             && len >= 2 + XMP_SIGNATURE.len() as u64
             && head.get(pos + 4, XMP_SIGNATURE.len())? == XMP_SIGNATURE
         {
-            has_xmp = true;
+            old_xmp.push((pos, pos + 2 + len));
         }
         if matches!(m[1], 0xc0..=0xc3 | 0xc5..=0xc7 | 0xc9..=0xcb | 0xcd..=0xcf) {
             let f = head.get(pos + 5, 4)?;
@@ -795,9 +853,10 @@ fn jpeg_with_exif(
         }
         pos += 2 + len;
     }
-    let (o, mut ifd0, mut exif, gps) = match &dng {
-        Some((m, ..)) => (m.order, m.ifd0.clone(), m.exif.clone(), m.gps.clone()),
-        None => (Order(false), Vec::new(), Vec::new(), Vec::new()),
+    let (o, mut ifd0, mut exif, mut gps) = match (&dng, &own) {
+        (Some((m, ..)), _) => (m.order, m.ifd0.clone(), m.exif.clone(), m.gps.clone()),
+        (None, Some(t)) => (t.order, Vec::new(), Vec::new(), Vec::new()),
+        (None, None) => (Order(false), Vec::new(), Vec::new(), Vec::new()),
     };
     // DNG-only tags become their EXIF equivalents.
     for (from, to) in [(CAMERA_SERIAL, 42033), (LENS_INFO, 42034)] {
@@ -807,6 +866,23 @@ fn jpeg_with_exif(
                 f.tag = to;
                 exif.push(f);
             }
+        }
+    }
+    // The JPEG's own tags describe its pixels (orientation, color space,
+    // resolution), so they win over the DNG's; the map wins over both.
+    if let Some(t) = own {
+        for f in t.ifd0 {
+            set(&mut ifd0, f.in_order(t.order, o));
+        }
+        for f in t.exif {
+            // ExifVersion describes the tag set, which is mostly the DNG's.
+            if f.tag == 36864 && exif.iter().any(|e| e.tag == 36864) {
+                continue;
+            }
+            set(&mut exif, f.in_order(t.order, o));
+        }
+        if !t.gps.is_empty() {
+            gps = t.gps.into_iter().map(|f| f.in_order(t.order, o)).collect();
         }
     }
     if let Some(v) = orientation {
@@ -822,11 +898,15 @@ fn jpeg_with_exif(
     let mut bytes = vec![0xff, 0xd8];
     bytes.extend(exif_segment(o, ifd0, exif, gps)?);
     let mut pieces = Vec::new();
+    // The DNG's XMP replaces the JPEG's own, so there is one packet; a JPEG
+    // whose DNG has none keeps its own.
+    let mut drop = old_exif;
     if let Some((m, source, path)) = dng
         && let Some((offset, length)) = m
             .xmp
-            .filter(|&(_, l)| !has_xmp && l <= 65533 - XMP_SIGNATURE.len() as u64)
+            .filter(|&(_, l)| l <= 65533 - XMP_SIGNATURE.len() as u64)
     {
+        drop.extend(old_xmp);
         bytes.extend([0xff, 0xe1]);
         bytes.extend(((2 + XMP_SIGNATURE.len() as u64 + length) as u16).to_be_bytes());
         bytes.extend(XMP_SIGNATURE);
@@ -842,9 +922,21 @@ fn jpeg_with_exif(
     if !bytes.is_empty() {
         pieces.push(Piece::Bytes(bytes));
     }
+    // The rest of the JPEG, without the segments replaced.
+    drop.sort();
+    let mut at = 2;
+    for (start, end) in drop {
+        if start > at {
+            pieces.push(Piece::Own {
+                offset: at,
+                length: start - at,
+            });
+        }
+        at = end;
+    }
     pieces.push(Piece::Own {
-        offset: 2,
-        length: size - 2,
+        offset: at,
+        length: size - at,
     });
     Ok(Some(pieces))
 }
@@ -983,7 +1075,7 @@ mod tests {
         let at = exif[0].3 as usize;
         assert_eq!(&t[at..at + 20], b"2024:10:02 04:45:42\0");
         assert_eq!(&out[4 + seglen..], &j[2..], "image data follows unchanged");
-        // A JPEG that already has EXIF is left alone.
+        // A JPEG that already has EXIF gets one rebuilt segment, the map winning.
         let f2 = dir.path().join("src/c.jpg");
         let mut with = vec![0xff, 0xd8];
         let o = Order(false);
@@ -995,9 +1087,11 @@ mod tests {
         )?);
         with.extend(&j[2..]);
         std::fs::write(&f2, &with)?;
-        assert!(
-            jpeg_with_exif(&File::open(&f2)?, with.len() as u64, Some(6), None, None)?.is_none()
-        );
+        let pieces = jpeg_with_exif(&File::open(&f2)?, with.len() as u64, Some(6), None, None)?;
+        let out = assemble(pieces.unwrap(), &with, &[]);
+        let seglen = u16::from_be_bytes([out[4], out[5]]) as usize;
+        assert_eq!(ifd(&out[12..4 + seglen], 8), [(274, 3, 1, 6)]);
+        assert_eq!(&out[4 + seglen..], &j[2..], "the old segment is gone");
         Ok(())
     }
 
@@ -1129,6 +1223,97 @@ mod tests {
         let seglen = u16::from_be_bytes([out[4], out[5]]) as usize;
         assert_eq!(ifd(&out[12..4 + seglen], 8)[0], (274, 3, 1, 6));
         assert_eq!(&out[4 + seglen..], &j[2..]);
+        Ok(())
+    }
+
+    /// A big-endian EXIF APP1 like Lightroom's, and an XMP APP1.
+    fn lightroom_jpeg(j: &[u8]) -> Result<Vec<u8>> {
+        let o = Order(false);
+        let rational = |n: u32, d: u32| [o.p32(n), o.p32(d)].concat();
+        let res = |tag| Field {
+            tag,
+            typ: 5,
+            count: 1,
+            data: rational(240, 1),
+        };
+        let mut out = vec![0xff, 0xd8];
+        out.extend(exif_segment(
+            o,
+            vec![
+                Field::short(o, 274, 1),
+                res(282),
+                res(283),
+                Field::short(o, 296, 2),
+            ],
+            vec![Field::short(o, 40961, 1)], // ColorSpace: sRGB
+            vec![],
+        )?);
+        let xmp = b"<x:xmpmeta>lightroom</x:xmpmeta>";
+        out.extend([0xff, 0xe1]);
+        out.extend(((2 + XMP_SIGNATURE.len() + xmp.len()) as u16).to_be_bytes());
+        out.extend(XMP_SIGNATURE);
+        out.extend(xmp);
+        out.extend(&j[2..]);
+        Ok(out)
+    }
+
+    #[test]
+    fn existing_exif_is_merged_with_the_dng_and_xmp_replaced_only_by_the_dngs() -> Result<()> {
+        let j = jpeg(1600, 1064);
+        let lr = lightroom_jpeg(&j)?;
+        let o = Order(true);
+        let own_xmp_at = lr
+            .windows(XMP_SIGNATURE.len())
+            .position(|w| w == XMP_SIGNATURE)
+            .unwrap();
+        for dng_xmp in [&b""[..], b"<x:xmpmeta>dng</x:xmpmeta>"] {
+            // The DNG says orientation 8 and has no color space; the map's
+            // orientation 6 and the JPEG's sRGB and resolution must win.
+            let mut d = dng_with_metadata(dng_xmp);
+            d.truncate(d.len() - 7); // an EXIF-only TIFF, like an ExifTool stub
+            let (dir, p) = setup(
+                "c.jpg\tmetadata=g/c.exif\torientation=6\n",
+                &[("src/c.jpg", &lr)],
+            )?;
+            std::fs::create_dir_all(dir.path().join("meta/g"))?;
+            std::fs::write(dir.path().join("meta/g/c.exif"), &d)?;
+            let f = File::open(dir.path().join("src/c.jpg"))?;
+            let out = assemble(p.compose(&["c.jpg".into()], &f)?.unwrap(), &lr, &d);
+            let seglen = u16::from_be_bytes([out[4], out[5]]) as usize;
+            let t = &out[12..4 + seglen];
+            assert_eq!(&t[..2], b"II", "written in the DNG's byte order");
+            let tags: Vec<u16> = ifd(t, 8).iter().map(|e| e.0).collect();
+            assert_eq!(tags, [271, 272, 274, 282, 283, 296, 34665, 34853]);
+            assert_eq!(value(t, 8, 271), b"Maker\0", "camera from the DNG");
+            assert_eq!(value(t, 8, 274), [6, 0], "map orientation wins");
+            assert_eq!(
+                value(t, 8, 282),
+                [240, 0, 0, 0, 1, 0, 0, 0],
+                "converted to II"
+            );
+            let exif_at = o.u32(&value(t, 8, 34665)) as usize;
+            assert_eq!(value(t, exif_at, 40961), [1, 0], "the JPEG's color space");
+            assert_eq!(value(t, exif_at, 42036), b"Lens 35mm\0");
+            assert_eq!(out.windows(6).filter(|w| *w == b"Exif\0\0").count(), 1);
+            assert_eq!(
+                out.windows(XMP_SIGNATURE.len())
+                    .filter(|w| *w == XMP_SIGNATURE)
+                    .count(),
+                1
+            );
+            let rest = &out[4 + seglen..];
+            if dng_xmp.is_empty() {
+                assert_eq!(rest, &lr[own_xmp_at - 4..], "own XMP and image data kept");
+            } else {
+                let x = 2 + XMP_SIGNATURE.len();
+                assert_eq!(
+                    &rest[2 + x..2 + x + dng_xmp.len()],
+                    dng_xmp,
+                    "the DNG's XMP"
+                );
+                assert_eq!(&rest[2 + x + dng_xmp.len()..], &j[2..], "own XMP replaced");
+            }
+        }
         Ok(())
     }
 
