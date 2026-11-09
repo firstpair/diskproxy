@@ -124,7 +124,7 @@ id="workflow-camera-card-ingest-with-photo-mechanic-plus"><span
 class="header-section-number">1.9</span> Workflow: camera-card ingest
 with Photo Mechanic Plus</h2>
 <p>This is the workflow diskproxy was first written for. The <a
-href="https://github.com/firstpair/diskproxy/blob/13ba211bc7bd2fbc0fd05dc2342174d6e6a472e6/plugins/pmp/README.md">PMP
+href="https://github.com/firstpair/diskproxy/blob/a65b2f2b2df33d2376d43e438a7c40b275899c90/plugins/pmp/README.md">PMP
 guide</a> is the complete reference.</p>
 <h3 data-number="1.9.1" id="the-problem"><span
 class="header-section-number">1.9.1</span> The problem</h3>
@@ -135,6 +135,15 @@ times without a valid timezone offset, so macOS interpreted them in
 whatever timezone the Mac was in when the card was mounted. After
 travelling, the same photo had a different modification time, Photo
 Mechanic thought it was new, and it copied the whole card again.</p>
+<p>No travel is needed: a daylight-saving change shifts the offset at
+home. A card whose October photos were ingested in Pacific daylight time
+(UTC−7) read one hour later in November, in standard time (UTC−8), and
+Photo Mechanic offered all 904 of its earlier files again. A card that
+is only ever ingested at one offset is safe without diskproxy; a card
+that spans a change is not, so registering every card and always
+ingesting through the view is the simple rule. Mixing raw ingests and
+ingests through the view of the same card makes Photo Mechanic’s history
+flip between the two readings, and files are offered again.</p>
 <h3 data-number="1.9.2" id="the-fix"><span
 class="header-section-number">1.9.2</span> The fix</h3>
 <p>The <code>pmp</code> plugin presents the card as a virtual disk with
@@ -142,8 +151,10 @@ a fixed timestamp convention. For a new card the convention is UTC; a
 card with existing history keeps the convention its history was made in,
 for example Pacific time. The plugin works out the offset the card was
 mounted in from up to three sampled photos, recorded in a small profile
-on the card when it is registered. The photos themselves, and their EXIF
-capture times, are never changed.</p>
+on the card when it is registered. Every file the camera writes under
+<code>DCIM</code>, videos and thumbnails included, gets the same
+convention. The photos themselves, and their EXIF capture times, are
+never changed.</p>
 <h3 data-number="1.9.3" id="setting-up"><span
 class="header-section-number">1.9.3</span> Setting up</h3>
 <div class="sourceCode" id="cb1"><pre class="sourceCode sh"><code class="sourceCode bash"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="ex">scripts/install.sh</span> <span class="at">--config</span> configs/pmp.json</span></code></pre></div>
