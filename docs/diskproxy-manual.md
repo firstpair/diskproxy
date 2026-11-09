@@ -15,6 +15,21 @@ the internal architecture, limits and troubleshooting. The
 [README](../README.md) is the short version; the
 [project story](blog/diskproxy/post.md) explains how the design came about.
 
+## Where it fits
+
+This book is one of nine on the FirstPair photo tools. Each owns one part, and
+[The FirstPair Photo Stack](https://firstpair.org/books/photostack/) shows how they fit together.
+
+- **[tiffgraph](https://firstpair.org/books/tiffgraph/)** walks a TIFF or DNG file's structure under a fixed grammar and finds its editable XMP packet.
+- **[phidentify](https://firstpair.org/books/phidentify/)** computes a photo's identities: SHA-256, DNG raw blocks, image data, Lightroom fingerprint, metadata record and preserved digest.
+- **[phindex](https://firstpair.org/books/phindex/)** keeps those identities for every file of a volume, and aligns two volumes by content.
+- **[DNG Compare](https://firstpair.org/books/dng-compare/)** compares pairs and preserves one side byte for byte as deltas against the other, with a searchable metadata section, through `dngc`.
+- **[Semantic Unison](https://firstpair.org/books/semantic-unison/)** synchronizes photo trees, sending metadata edits without resending image bytes, and preserves what a shuttle disk brings into the same archives.
+- **[packdir](https://firstpair.org/books/packdir/)** keeps directories of small files as SQLite archives that still work like plain files.
+- **[Tursolite](https://firstpair.org/books/tursolite/)** is the SQLite and Turso layer under packdir, DNG Compare and Mechanic.
+- **[diskproxy](https://firstpair.org/books/diskproxy/)** serves a folder as a virtual disk, such as previews with camera metadata spliced in, and captures ratings into sidecars.
+- **[Lightroom Repair](https://firstpair.org/books/lightroom-repair/)** repairs Lightroom Classic catalogs, previews and Sync without forging their state.
+
 ## What diskproxy is for
 
 diskproxy solves one general problem: an application expects files to look a
@@ -55,6 +70,30 @@ A running view is a snapshot of the folder's structure with live file bytes
 behind it. If a source file's size or modification time changes while it is
 served, reads of it fail rather than returning a mixture of old and new data.
 Stop and start again after an intended change.
+
+## New in 1.1
+
+This edition covers diskproxy 0.3.0. Since the first edition, the `previews`
+plugin has learned to give preview JPEGs their camera metadata:
+
+- **Metadata splicing.** A map entry `metadata=` names a DNG or an EXIF-only
+  TIFF, and the JPEG is served with its camera, lens, exposure, serial number and
+  GPS EXIF, and its XMP packet, without copying image data.
+- **One merged EXIF segment.** A JPEG that already has EXIF, such as a Lightroom
+  preview, has it replaced by one rebuilt segment: the JPEG's own tags describe
+  its pixels and win, the metadata file supplies the camera, and the map's
+  orientation and capture time win over both. There is one XMP packet: the
+  JPEG's own, unless the metadata file has one.
+- **A metadata store.** Instead of one small file per photo, `metadata_store`
+  names a single SQLite file of them, opened read-only and immutable. Map paths
+  are compared in composed Unicode (NFC).
+- **Pixel tags stay the preview's.** Color space, resolution and the other tags
+  that describe pixels never come from a metadata file.
+- **Dates exFAT cannot hold** no longer stop the disk: they are shown as the
+  nearest time it can hold, with a warning naming the file.
+
+Two libraries built this way are described under
+[Two libraries](#two-libraries-served-from-previews).
 
 ## Installing
 
@@ -513,7 +552,12 @@ served unchanged with a warning in the server log, rather than failing the disk.
 `metadata_root` is needed only when the map has `metadata=` fields. For a very
 large library, `metadata_store` can name one SQLite file holding all the
 metadata files as blobs in a table `stubs(key TEXT PRIMARY KEY, exif BLOB)`, with
-`metadata=` giving the key; see the previews plugin guide. Leave out
+`metadata=` giving the key; see the previews plugin guide. diskproxy reads the
+store itself, through SQLite bundled into the server, opened read-only and
+immutable, and refuses a store whose `-wal` file is not empty. Any SQLite writer
+can produce it. [Tursolite](https://firstpair.org/books/tursolite/), for
+example, can write it, optionally under Turso's concurrent (MVCC) mode, and then
+seal it to an ordinary rollback-journal file that diskproxy can open. Leave out
 `writable` and `ratings` for a purely read-only library. Start it with
 `diskproxy --config library.json start`. Check one file through the mounted
 volume:
@@ -566,7 +610,34 @@ ratings folder, and `previous` the values before this change. The ratings folder
 refuses to start otherwise.
 
 These sidecars use the Adobe naming convention, so a DNG's sidecar can later sit
-beside its original, where Lightroom or another application can read it.
+beside its original, where Lightroom or another application can read it. To
+bring the captured ratings into a Lightroom Classic catalog, follow the recipe in
+[Lightroom Repair](https://firstpair.org/books/lightroom-repair/).
+
+### Two libraries served from previews
+
+Two libraries have been built this way. The numbers are observations of each,
+not limits.
+
+**Smart Previews as stand-ins.** On a laptop, a Lightroom Classic library's
+Smart Previews were cloned into the originals' folder layout as DNG stand-ins,
+and paired with Photo Mechanic's 1600-pixel preview JPEGs: 671,335 DNGs gained
+the large preview, and 566,365 of 566,556 JPEGs gained the camera metadata of
+their Smart Preview, as `metadata=` files. The 1,256,465-file tree scanned in
+110 seconds, about 50 seconds more than without metadata, and the server used
+1.9 GB, about 1.3 KB more per mapped JPEG. The view is writable, with ratings
+captured as sidecars.
+
+**Regular previews with a metadata store.** On a desktop, a Photo Mechanic
+catalog was built from APFS clones of Lightroom Classic's ordinary preview
+levels, needing only the one drive that holds them. Camera metadata was
+extracted once, from an existing index of the originals' metadata, as EXIF-only
+TIFFs written by ExifTool, and stored in one 3.8 GB metadata store of 834,891
+entries. Half of these previews already carried a small Lightroom EXIF segment,
+merged as described above; most are Adobe RGB without an ICC profile, which is
+why pixel tags never come from the metadata. The 835,383 files in 6,521 folders
+scanned in 111 seconds on a busy machine (load average 11 to 15), and the
+server then used 1.64 GB.
 
 ## Writing a plugin
 
