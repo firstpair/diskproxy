@@ -421,8 +421,12 @@ changed.
 scripts/install.sh --config configs/pmp.json
 ```
 
-The example config expects the card at `/Volumes/LEICA M`; edit `source` for
-another card name, or pass the path to `start`.
+You don't need to name the card. If the config's `source` isn't mounted, or
+the config has no `source`, diskproxy uses the one mounted volume that has a
+`DCIM` folder and isn't a disk image (so a running diskproxy view isn't picked
+up as a card). If several cards are mounted, it stops and lists them; pass
+the one you want to `start`. A path given on the command line is always used
+as is.
 
 ### Registering a new card
 

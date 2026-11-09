@@ -127,6 +127,10 @@ All plugin settings can be supplied in JSON or overridden on the command line:
 }
 ```
 
+`source` is optional. When it is missing or not mounted, the server uses the
+one mounted volume with a `DCIM` folder that isn't a disk image, and refuses to
+guess when several cards are mounted.
+
 ```sh
 diskproxy start --set plugins.pmp.hide_ingested=true
 # Equivalent to selecting configs/pmp-filtered.json.

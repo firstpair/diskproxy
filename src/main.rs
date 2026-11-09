@@ -88,6 +88,44 @@ struct Args {
     #[arg(long)]
     overlay: Option<PathBuf>,
 }
+/// The one mounted camera card: a volume with a DCIM folder that is not a disk
+/// image (a diskproxy view also shows DCIM, but it is an attached image).
+fn mounted_card(
+    volumes: &std::path::Path,
+    is_image: impl Fn(&std::path::Path) -> bool,
+) -> Result<PathBuf> {
+    let mut cards: Vec<PathBuf> = std::fs::read_dir(volumes)
+        .with_context(|| format!("list {}", volumes.display()))?
+        .filter_map(|e| e.ok().map(|e| e.path()))
+        .filter(|p| p.join("DCIM").is_dir() && !is_image(p))
+        .collect();
+    cards.sort();
+    match cards.len() {
+        0 => bail!("no camera card is mounted (no volume with a DCIM folder)"),
+        1 => Ok(cards.remove(0)),
+        _ => bail!(
+            "several camera cards are mounted; name one: {}",
+            cards
+                .iter()
+                .map(|p| format!("\"{}\"", p.display()))
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
+    }
+}
+
+fn is_disk_image(volume: &std::path::Path) -> bool {
+    std::process::Command::new("diskutil")
+        .args(["info", "-plist"])
+        .arg(volume)
+        .output()
+        .map(|o| {
+            !o.status.success()
+                || String::from_utf8_lossy(&o.stdout).contains("<string>Disk Image</string>")
+        })
+        .unwrap_or(true)
+}
+
 fn override_value(root: &mut Value, expression: &str) -> Result<()> {
     let (key, value) = expression
         .split_once('=')
@@ -187,11 +225,31 @@ fn run() -> Result<()> {
         override_value(&mut raw, expr)?;
     }
     let mut config: Config = serde_json::from_value(raw).context("invalid diskproxy config")?;
+    let source_given = args.source.is_some();
     if let Some(v) = args.source {
         config.source = Some(v);
     }
     if let Some(v) = args.plugin {
         config.plugin = v;
+    }
+    // A camera card is whatever card is mounted: the configured source is only
+    // a preference, used when that card is the one in the reader.
+    if config.plugin == PluginName::Pmp && !source_given {
+        let configured = config.source.take();
+        config.source = Some(match configured {
+            Some(path) if path.is_dir() => path,
+            configured => {
+                let card = mounted_card(std::path::Path::new("/Volumes"), is_disk_image)?;
+                if let Some(path) = configured {
+                    eprintln!(
+                        "{} is not mounted; using {}",
+                        path.display(),
+                        card.display()
+                    );
+                }
+                card
+            }
+        });
     }
     if let Some(v) = args.mode {
         config.mode = v;
@@ -366,4 +424,35 @@ fn run() -> Result<()> {
         config.port,
         info,
     )
+}
+
+#[cfg(test)]
+mod card_tests {
+    use super::*;
+
+    #[test]
+    fn the_one_card_with_dcim_that_is_not_an_image_is_chosen() -> Result<()> {
+        let dir = tempfile::tempdir()?;
+        for (name, dcim) in [
+            ("LEICA Q343", true),
+            ("Bullet", false),
+            ("PMP Pacific", true),
+        ] {
+            std::fs::create_dir(dir.path().join(name))?;
+            if dcim {
+                std::fs::create_dir(dir.path().join(name).join("DCIM"))?;
+            }
+        }
+        let image = |p: &std::path::Path| p.ends_with("PMP Pacific");
+        assert_eq!(
+            mounted_card(dir.path(), image)?,
+            dir.path().join("LEICA Q343")
+        );
+        std::fs::create_dir_all(dir.path().join("LEICA M/DCIM"))?;
+        let err = mounted_card(dir.path(), image).unwrap_err().to_string();
+        assert!(err.contains("several camera cards"), "{err}");
+        let none = tempfile::tempdir()?;
+        assert!(mounted_card(none.path(), image).is_err());
+        Ok(())
+    }
 }
