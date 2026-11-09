@@ -74,13 +74,14 @@ class="header-section-number">1.16.1</span> <code>diskproxy</code></h3>
 <td>Start a view in the background and mount it</td>
 </tr>
 <tr>
-<td><code>diskproxy status</code></td>
-<td>Show the running server and volume</td>
+<td><code>diskproxy [--config FILE] status</code></td>
+<td>Show each running view’s server and volume, or the selected one</td>
 </tr>
 <tr>
-<td><code>diskproxy stop</code></td>
+<td><code>diskproxy [--config FILE] stop</code></td>
 <td>Capture pending writes, unmount, stop the server and delete the
-session</td>
+session; with several views running, <code>--config</code> is
+required</td>
 </tr>
 <tr>
 <td><code>diskproxy --help</code></td>

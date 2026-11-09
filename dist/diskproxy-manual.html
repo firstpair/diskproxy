@@ -157,8 +157,8 @@ and no kernel extension, FUSE driver or Python runtime is needed.</p>
 developers who want to adapt it. It covers installation, everyday
 commands, every configuration key, the three transports, writable views,
 two complete workflows, writing a plugin, the internal architecture,
-limits and troubleshooting. The <a href="https://github.com/firstpair/diskproxy/blob/d3ed06eda23c59dd2a6afb86dc1199bfd7d9ca13/README.md">README</a>
-is the short version; the <a href="https://github.com/firstpair/diskproxy/blob/d3ed06eda23c59dd2a6afb86dc1199bfd7d9ca13/docs/blog/diskproxy/post.md">project
+limits and troubleshooting. The <a href="https://github.com/firstpair/diskproxy/blob/13ba211bc7bd2fbc0fd05dc2342174d6e6a472e6/README.md">README</a>
+is the short version; the <a href="https://github.com/firstpair/diskproxy/blob/13ba211bc7bd2fbc0fd05dc2342174d6e6a472e6/docs/blog/diskproxy/post.md">project
 story</a> explains how the design came about.</p>
 <h2 data-number="1.1" id="where-it-fits"><span class="header-section-number">1.1</span> Where it fits</h2>
 <p>This book is one of nine on the FirstPair photo tools. Each owns one
@@ -347,6 +347,14 @@ After use: diskproxy stop</code></pre>
 <code>status</code> prints the server’s process ID and the mounted
 volume. <code>stop</code> finishes any pending capture, unmounts, then
 stops the server and deletes the session folder.</p>
+<p>Each config file has its own view, so several can run at once, such
+as a photo library and a camera card. <code>--config FILE</code> selects
+the view for <code>start</code>, <code>status</code> and
+<code>stop</code>; without it, <code>start</code> uses the default
+config, <code>status</code> lists every running view, and
+<code>stop</code> stops the only one or, when several are running, names
+them and asks for <code>--config</code>. A second <code>start</code> of
+the same config is refused while its view runs.</p>
 <h3 data-number="1.5.1" id="choosing-a-source-or-config-for-one-session"><span class="header-section-number">1.5.1</span> Choosing a source or config
 for one session</h3>
 <p>A path after <code>start</code> overrides the configured source.
@@ -382,12 +390,15 @@ the application can finish. Close the files and run
 checks that the mounted volume is still the one it attached, by its
 volume UUID, so it never detaches some other disk.</p>
 <h3 data-number="1.5.4" id="the-session-folder"><span class="header-section-number">1.5.4</span> The session folder</h3>
-<p>Each session lives in <code>~/Library/Caches/diskproxy/session</code>
-(set <code>DISKPROXY_STATE_DIR</code> to move it). It holds the server’s
-startup JSON and error log, the process ID and start time, the
-attachment details and, for writable views, the shadow file or overlay
-and the harvester’s log. Only one managed session runs at a time;
-<code>start</code> refuses to start a second one.</p>
+<p>Each view’s session lives in
+<code>~/Library/Caches/diskproxy/sessions/NAME</code>, where NAME is its
+config file’s name without <code>.json</code> (set
+<code>DISKPROXY_STATE_DIR</code> to move the parent folder). It holds
+the server’s startup JSON and error log, the process ID and start time,
+the attachment details and, for writable views, the shadow file or
+overlay and the harvester’s log. A session started by an older launcher
+in <code>~/Library/Caches/diskproxy/session</code> is still found, as
+the default config’s view.</p>
 <h2 data-number="1.6" id="configuration"><span class="header-section-number">1.6</span> Configuration</h2>
 <p>The default config is <code>~/.config/diskproxy/config.json</code>. A
 general example:</p>
@@ -558,7 +569,7 @@ and applications that work with folders rather than disks:</p>
 <code>http://127.0.0.1:PORT/TOKEN/</code>; treat the URL as a password.
 It implements <code>OPTIONS</code>, <code>PROPFIND</code> with depth 0
 or 1, <code>GET</code> and <code>HEAD</code> with single byte ranges,
-and rejects every other method with <code>403</code>. The <a href="https://github.com/firstpair/diskproxy/blob/d3ed06eda23c59dd2a6afb86dc1199bfd7d9ca13/docs/webdav.md">transport
+and rejects every other method with <code>403</code>. The <a href="https://github.com/firstpair/diskproxy/blob/13ba211bc7bd2fbc0fd05dc2342174d6e6a472e6/docs/webdav.md">transport
 guide</a> lists the supported properties and limits.</p>
 <h2 data-number="1.8" id="writable-views"><span class="header-section-number">1.8</span> Writable views</h2>
 <p>Some applications write metadata into the files they show: Photo
@@ -646,7 +657,7 @@ which is how <code>diskproxy stop</code> ends it, it passes everything
 still pending before exiting.</p>
 <h2 data-number="1.9" id="workflow-camera-card-ingest-with-photo-mechanic-plus"><span class="header-section-number">1.9</span> Workflow: camera-card ingest
 with Photo Mechanic Plus</h2>
-<p>This is the workflow diskproxy was first written for. The <a href="https://github.com/firstpair/diskproxy/blob/d3ed06eda23c59dd2a6afb86dc1199bfd7d9ca13/plugins/pmp/README.md">PMP
+<p>This is the workflow diskproxy was first written for. The <a href="https://github.com/firstpair/diskproxy/blob/13ba211bc7bd2fbc0fd05dc2342174d6e6a472e6/plugins/pmp/README.md">PMP
 guide</a> is the complete reference.</p>
 <h3 data-number="1.9.1" id="the-problem"><span class="header-section-number">1.9.1</span> The problem</h3>
 <p>Photo Mechanic Plus records each ingested file’s path, size and
@@ -699,7 +710,7 @@ ingested files.</p>
 <h2 data-number="1.10" id="workflow-a-photo-library-served-from-its-previews"><span class="header-section-number">1.10</span> Workflow: a photo library
 served from its previews</h2>
 <p>The <code>previews</code> plugin builds a browsable library out of
-files that already exist. Its <a href="https://github.com/firstpair/diskproxy/blob/d3ed06eda23c59dd2a6afb86dc1199bfd7d9ca13/plugins/previews/README.md">guide</a>
+files that already exist. Its <a href="https://github.com/firstpair/diskproxy/blob/13ba211bc7bd2fbc0fd05dc2342174d6e6a472e6/plugins/previews/README.md">guide</a>
 is the complete reference; this section walks through a whole setup.</p>
 <h3 data-number="1.10.1" id="the-idea"><span class="header-section-number">1.10.1</span> The idea</h3>
 <p>Suppose your originals are offline, but you have two smaller things
@@ -934,13 +945,14 @@ its whole XMP block, the property is recorded as cleared (Rating
 <code>0</code>, an empty Label, ColorClass <code>0</code>, Tagged
 <code>False</code>), with the old value as <code>previous</code>.</p>
 <p>Captured ratings outlive the session. The next time the disk is
-built, every served JPEG with a sidecar is served with the sidecar’s
-values merged into its XMP packet. Only those four properties are
-replaced; the rest of the JPEG’s own or its metadata file’s XMP is kept,
-in one packet. An application that re-reads the file after a restart
-finds the ratings it wrote rather than losing them. The served
-modification time stays the source file’s. DNGs are not yet served with
-their captured ratings.</p>
+built, every served JPEG, DNG or TIFF with a sidecar is served with the
+sidecar’s values merged into its XMP packet. A DNG gets the merged
+packet appended after its data, through the same copied IFD0 that adds a
+preview. Only those four properties are replaced; the rest of the JPEG’s
+own or its metadata file’s XMP is kept, in one packet. An application
+that re-reads the file after a restart finds the ratings it wrote rather
+than losing them. The served modification time stays the source
+file’s.</p>
 <p>These sidecars use the Adobe naming convention, so a DNG’s sidecar
 can later sit beside its original, where Lightroom or another
 application can read it. To bring the captured ratings into a Lightroom
@@ -975,8 +987,8 @@ in 6,521 folders scanned in 111 seconds on a busy machine (load average
 trait from <code>diskproxy-core</code> and is linked into the
 application at build time. There is no dynamic loading: adding a plugin
 means adding a crate and registering it in <code>src/main.rs</code>. The
-<a href="https://github.com/firstpair/diskproxy/blob/d3ed06eda23c59dd2a6afb86dc1199bfd7d9ca13/docs/plugins.md">plugin
-guide</a> gives every step, and the <a href="https://github.com/firstpair/diskproxy/blob/d3ed06eda23c59dd2a6afb86dc1199bfd7d9ca13/examples/hide-plugin/README.md">hide
+<a href="https://github.com/firstpair/diskproxy/blob/13ba211bc7bd2fbc0fd05dc2342174d6e6a472e6/docs/plugins.md">plugin
+guide</a> gives every step, and the <a href="https://github.com/firstpair/diskproxy/blob/13ba211bc7bd2fbc0fd05dc2342174d6e6a472e6/examples/hide-plugin/README.md">hide
 example</a> is a complete, compiled reference with a patch that
 registers it.</p>
 <h3 data-number="1.11.1" id="the-trait"><span class="header-section-number">1.11.1</span> The trait</h3>
@@ -1180,7 +1192,8 @@ files under 4 GiB. A preview is added, never replaced. A mapped JPEG
 whose own EXIF cannot be parsed is served unchanged. A metadata DNG’s
 XMP is served as it is, so its <code>dc:format</code> still says
 <code>image/dng</code>.</li>
-<li><strong>One session at a time</strong> through the launcher.</li>
+<li><strong>One view per config file</strong> through the launcher; use
+separate config files to serve several folders at once.</li>
 <li><strong>A stable source:</strong> files changed while served fail to
 read; restart after intended changes. A plugin’s prepared state, such as
 the PMP history snapshot or the previews map, is fixed for the
@@ -1210,9 +1223,14 @@ localhost capability.</li>
 <td>The camera card is not registered; see <a href="#registering-a-new-card">Registering a new card</a></td>
 </tr>
 <tr>
-<td><code>A managed session already exists.</code></td>
-<td>A view is already running; use <code>diskproxy status</code> or
-<code>diskproxy stop</code></td>
+<td><code>A view for NAME is already running.</code></td>
+<td>That config’s view is running; use <code>diskproxy status</code> or
+<code>diskproxy --config FILE stop</code></td>
+</tr>
+<tr>
+<td><code>Several views are running</code></td>
+<td><code>stop</code> needs <code>--config FILE</code> to choose
+one</td>
 </tr>
 <tr>
 <td><code>Detach failed. Server left running...</code></td>
@@ -1328,13 +1346,14 @@ fixtures.</p>
 <td>Start a view in the background and mount it</td>
 </tr>
 <tr>
-<td><code>diskproxy status</code></td>
-<td>Show the running server and volume</td>
+<td><code>diskproxy [--config FILE] status</code></td>
+<td>Show each running view’s server and volume, or the selected one</td>
 </tr>
 <tr>
-<td><code>diskproxy stop</code></td>
+<td><code>diskproxy [--config FILE] stop</code></td>
 <td>Capture pending writes, unmount, stop the server and delete the
-session</td>
+session; with several views running, <code>--config</code> is
+required</td>
 </tr>
 <tr>
 <td><code>diskproxy --help</code></td>

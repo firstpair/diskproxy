@@ -394,14 +394,26 @@ when the card was mounted. After travelling, the same photo had a different
 modification time, Photo Mechanic thought it was new, and it copied the whole
 card again.
 
+No travel is needed: a daylight-saving change shifts the offset at home. A card
+whose October photos were ingested in Pacific daylight time (UTC−7) read one
+hour later in November, in standard time (UTC−8), and Photo Mechanic offered
+all 904 of its earlier files again. A card that is only ever ingested at one
+offset is safe without diskproxy; a card that spans a change is not, so
+registering every card and always ingesting through the view is the simple
+rule. Mixing raw ingests and ingests through the view of the same card makes
+Photo Mechanic's history flip between the two readings, and files are offered
+again.
+
 ### The fix
 
 The `pmp` plugin presents the card as a virtual disk with a fixed timestamp
 convention. For a new card the convention is UTC; a card with existing history
 keeps the convention its history was made in, for example Pacific time. The
 plugin works out the offset the card was mounted in from up to three sampled
-photos, recorded in a small profile on the card when it is registered. The
-photos themselves, and their EXIF capture times, are never changed.
+photos, recorded in a small profile on the card when it is registered. Every
+file the camera writes under `DCIM`, videos and thumbnails included, gets the
+same convention. The photos themselves, and their EXIF capture times, are never
+changed.
 
 ### Setting up
 

@@ -135,6 +135,14 @@ After use: diskproxy stop</code></pre>
 <code>status</code> prints the server’s process ID and the mounted
 volume. <code>stop</code> finishes any pending capture, unmounts, then
 stops the server and deletes the session folder.</p>
+<p>Each config file has its own view, so several can run at once, such
+as a photo library and a camera card. <code>--config FILE</code> selects
+the view for <code>start</code>, <code>status</code> and
+<code>stop</code>; without it, <code>start</code> uses the default
+config, <code>status</code> lists every running view, and
+<code>stop</code> stops the only one or, when several are running, names
+them and asks for <code>--config</code>. A second <code>start</code> of
+the same config is refused while its view runs.</p>
 <h3 data-number="1.5.1"
 id="choosing-a-source-or-config-for-one-session"><span
 class="header-section-number">1.5.1</span> Choosing a source or config
@@ -175,11 +183,14 @@ checks that the mounted volume is still the one it attached, by its
 volume UUID, so it never detaches some other disk.</p>
 <h3 data-number="1.5.4" id="the-session-folder"><span
 class="header-section-number">1.5.4</span> The session folder</h3>
-<p>Each session lives in <code>~/Library/Caches/diskproxy/session</code>
-(set <code>DISKPROXY_STATE_DIR</code> to move it). It holds the server’s
-startup JSON and error log, the process ID and start time, the
-attachment details and, for writable views, the shadow file or overlay
-and the harvester’s log. Only one managed session runs at a time;
-<code>start</code> refuses to start a second one.</p>
+<p>Each view’s session lives in
+<code>~/Library/Caches/diskproxy/sessions/NAME</code>, where NAME is its
+config file’s name without <code>.json</code> (set
+<code>DISKPROXY_STATE_DIR</code> to move the parent folder). It holds
+the server’s startup JSON and error log, the process ID and start time,
+the attachment details and, for writable views, the shadow file or
+overlay and the harvester’s log. A session started by an older launcher
+in <code>~/Library/Caches/diskproxy/session</code> is still found, as
+the default config’s view.</p>
 </body>
 </html>

@@ -68,7 +68,8 @@ files under 4 GiB. A preview is added, never replaced. A mapped JPEG
 whose own EXIF cannot be parsed is served unchanged. A metadata DNG’s
 XMP is served as it is, so its <code>dc:format</code> still says
 <code>image/dng</code>.</li>
-<li><strong>One session at a time</strong> through the launcher.</li>
+<li><strong>One view per config file</strong> through the launcher; use
+separate config files to serve several folders at once.</li>
 <li><strong>A stable source:</strong> files changed while served fail to
 read; restart after intended changes. A plugin’s prepared state, such as
 the PMP history snapshot or the previews map, is fixed for the

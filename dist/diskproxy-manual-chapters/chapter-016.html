@@ -75,9 +75,14 @@ href="chapter-011.html#registering-a-new-card">Registering a new
 card</a></td>
 </tr>
 <tr>
-<td><code>A managed session already exists.</code></td>
-<td>A view is already running; use <code>diskproxy status</code> or
-<code>diskproxy stop</code></td>
+<td><code>A view for NAME is already running.</code></td>
+<td>That config’s view is running; use <code>diskproxy status</code> or
+<code>diskproxy --config FILE stop</code></td>
+</tr>
+<tr>
+<td><code>Several views are running</code></td>
+<td><code>stop</code> needs <code>--config FILE</code> to choose
+one</td>
 </tr>
 <tr>
 <td><code>Detach failed. Server left running...</code></td>
