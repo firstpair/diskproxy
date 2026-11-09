@@ -74,7 +74,9 @@ Stop and start again after an intended change.
 ## New in 1.1
 
 This edition covers diskproxy 0.3.0. Since the first edition, the `previews`
-plugin has learned to give preview JPEGs their camera metadata:
+plugin has learned to give preview JPEGs their camera metadata and to keep the
+ratings given to them, and a photo library and a camera card can be served at
+once:
 
 - **Metadata splicing.** A map entry `metadata=` names a DNG or an EXIF-only
   TIFF, and the JPEG is served with its camera, lens, exposure, serial number and
@@ -91,6 +93,19 @@ plugin has learned to give preview JPEGs their camera metadata:
   that describe pixels never come from a metadata file.
 - **Dates exFAT cannot hold** no longer stop the disk: they are shown as the
   nearest time it can hold, with a warning naming the file.
+- **Ratings that last.** Clearing a rating, label or flag is captured too, and
+  captured ratings are served back in the JPEGs and the stand-in DNGs after a
+  restart, so an app reading the files sees what was written
+  ([Capturing ratings](#capturing-ratings)).
+- **Several views at once.** Each config file has its own view, so a photo
+  library and a camera card can be mounted side by side, each started and
+  stopped with its own `--config` ([Everyday use](#everyday-use)).
+- **Whichever card is mounted.** The card ingest no longer needs the card's name:
+  when the configured card isn't mounted, diskproxy uses the one camera card
+  that is ([Setting up](#setting-up)).
+- **Every camera file gets the corrected time,** videos and thumbnails
+  included, and a card whose ingests span a daylight-saving change is covered
+  as well as one that travelled ([The problem](#the-problem)).
 
 Two libraries built this way are described under
 [Two libraries](#two-libraries-served-from-previews).
