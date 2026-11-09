@@ -674,8 +674,9 @@ restart after an intended edit. The filtered history is also a session snapshot,
 so completing another ingest does not dynamically remove entries from a running
 view. Stop/start to load the newer history.
 
-Disk mode currently requires UTF-8 exFAT-compatible names and timestamps in the
-1980–2107 range. Its upcase table folds ASCII letters; non-ASCII case folding is
+Disk mode currently requires UTF-8 exFAT-compatible names; a modification time
+outside exFAT's 1980–2107 range is shown as the nearest one it can hold, with a
+warning. Its upcase table folds ASCII letters; non-ASCII case folding is
 not implemented. The server builds on Unix, while the automatic mounting
 workflow is macOS-specific. These limits belong in choosing where to use it,
 particularly for generic document trees rather than camera cards.

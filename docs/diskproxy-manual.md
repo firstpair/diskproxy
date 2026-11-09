@@ -479,7 +479,10 @@ work on their own.
 A JPEG that already has EXIF, such as a Lightroom preview with Orientation and
 color space, has that segment replaced by the rebuilt one. The JPEG's own tags
 win over the DNG's, since they describe the preview's pixels, and the map's
-values win over both. Its own XMP is kept unless the DNG has XMP, which then
+values win over both. Tags that describe pixels (color space, components,
+compression, pixel size, gamma) are never taken from the metadata file, even
+when the JPEG lacks them: a camera original's sRGB says nothing about a preview
+rendered in Adobe RGB. Its own XMP is kept unless the DNG has XMP, which then
 replaces it.
 
 Files not in the map are served unchanged. A mapped file that cannot be
@@ -704,9 +707,11 @@ the way, so it never detaches a different disk or stops a different process.
 
 ## Limits
 
-- **Disk mode:** names must be UTF-8 and valid for exFAT, and timestamps must
-  fall between 1980 and 2107. The case-folding table covers ASCII letters only.
-  Unsupported names and times fail; they are not rewritten.
+- **Disk mode:** names must be UTF-8 and valid for exFAT; unsupported names
+  fail rather than being rewritten. exFAT holds times from 1980 to 2107: a
+  modification time outside that range, such as the 1969-12-31 that a camera
+  with an unset clock can leave, is shown as the nearest one it can hold, with a
+  warning naming the file. The case-folding table covers ASCII letters only.
 - **Previews plugin:** classic TIFF only (not BigTIFF), files under 4 GiB. A
   preview is added, never replaced. A mapped JPEG whose own EXIF cannot be parsed
   is served unchanged. A metadata DNG's XMP is served as it is, so its `dc:format` still

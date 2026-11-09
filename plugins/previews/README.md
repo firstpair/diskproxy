@@ -28,7 +28,11 @@ The source tree is served as usual. A map file names the files to change:
 - **A JPEG that already has EXIF:** its EXIF segments are dropped and replaced by
   the rebuilt one, which merges both: the JPEG's own tags (Orientation, color
   space, resolution) win over the DNG's, because they describe the preview's
-  pixels; the DNG's ExifVersion wins, because it describes the tag set. The
+  pixels; the DNG's ExifVersion wins, because it describes the tag set.
+  Pixel-describing tags (ColorSpace, ComponentsConfiguration,
+  CompressedBitsPerPixel, pixel size, Gamma, and IFD0's resolution and
+  YCbCrPositioning) are never taken from the metadata file, even when the JPEG
+  has none: they describe the camera's file, not the preview. The
   JPEG's own XMP is kept, unless the DNG has XMP, which then replaces it so there
   is one packet.
 - **JPEG with `orientation=` and/or `datetime=`:** these set Orientation and

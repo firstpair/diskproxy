@@ -93,6 +93,15 @@ fn upper(c: u16) -> u16 {
     if (97..=122).contains(&c) { c - 32 } else { c }
 }
 
+/// First and last instants an exFAT timestamp can hold (UTC; even seconds).
+const EXFAT_FIRST: i64 = 315_532_800; // 1980-01-01 00:00:00
+const EXFAT_LAST: i64 = 4_354_819_198; // 2107-12-31 23:59:58
+
+/// The time to write for `epoch`: itself, or the nearest representable one.
+fn exfat_time(epoch: i64) -> i64 {
+    epoch.clamp(EXFAT_FIRST, EXFAT_LAST)
+}
+
 fn timestamp(epoch: i64) -> Result<(u32, u8)> {
     let d = DateTime::<Utc>::from_timestamp(epoch, 0).context("invalid image timestamp")?;
     ensure!(
@@ -122,7 +131,7 @@ fn entry(node: &Node) -> Result<Vec<u8>> {
     out[0] = 0x85;
     out[1] = (count - 1) as u8;
     put16(&mut out, 4, if node.directory { 0x10 } else { 0x20 });
-    let (time, increment) = timestamp(node.mtime)?;
+    let (time, increment) = timestamp(exfat_time(node.mtime))?;
     for pos in [8, 12, 16] {
         put32(&mut out, pos, time);
     }
@@ -537,7 +546,16 @@ impl Image {
                     bytes.extend_from_slice(&table);
                 }
                 for &child in &node.children {
-                    bytes.extend_from_slice(&entry(&nodes[child as usize])?);
+                    let c = &nodes[child as usize];
+                    if exfat_time(c.mtime) != c.mtime {
+                        eprintln!(
+                            "disk: {} has a modification time ({}) outside exFAT's 1980..2107; shown as {}",
+                            parts_of_nodes(&nodes, child).join("/"),
+                            c.mtime,
+                            exfat_time(c.mtime)
+                        );
+                    }
+                    bytes.extend_from_slice(&entry(c)?);
                 }
                 // Unused directory space reads as zeros; no need to store it.
                 image.bytes(offset(node.cluster), bytes)?;
@@ -735,6 +753,40 @@ mod tests {
             disk_name("plain.DNG"),
             "plain.DNG".encode_utf16().collect::<Vec<_>>()
         );
+    }
+
+    #[test]
+    fn times_outside_exfat_are_clamped_not_fatal() {
+        assert_eq!(
+            DateTime::<Utc>::from_timestamp(EXFAT_FIRST, 0)
+                .unwrap()
+                .to_rfc3339(),
+            "1980-01-01T00:00:00+00:00"
+        );
+        assert_eq!(
+            DateTime::<Utc>::from_timestamp(EXFAT_LAST, 0)
+                .unwrap()
+                .to_rfc3339(),
+            "2107-12-31T23:59:58+00:00"
+        );
+        assert!(timestamp(EXFAT_FIRST).is_ok() && timestamp(EXFAT_LAST).is_ok());
+        // 1969-12-31, the placeholder some cameras' unset clocks leave behind.
+        let mut node = Node {
+            name: "a.jpg".into(),
+            parent: 0,
+            children: vec![],
+            directory: false,
+            length: 1,
+            layout: vec![],
+            mtime: -1,
+            cluster: 3,
+            clusters: 1,
+        };
+        let first = entry(&node).unwrap();
+        node.mtime = EXFAT_FIRST;
+        assert_eq!(first, entry(&node).unwrap(), "shown as 1980-01-01");
+        node.mtime = i64::MAX / 2;
+        assert!(entry(&node).is_ok());
     }
 
     #[test]

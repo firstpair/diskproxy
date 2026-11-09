@@ -735,6 +735,18 @@ impl Xmp {
 const DNG_IFD0_KEEP: fn(u16) -> bool =
     |tag| IFD0_KEEP.contains(&tag) || tag == CAMERA_SERIAL || tag == LENS_INFO;
 
+/// EXIF tags that describe a file's pixels rather than the photo: ColorSpace,
+/// ComponentsConfiguration, CompressedBitsPerPixel, the pixel size and Gamma.
+/// A metadata file's values describe the camera's file, not the JPEG served,
+/// so they are never used; the JPEG's own values are kept. (IFD0's pixel tags,
+/// such as resolution, are already outside `DNG_IFD0_KEEP`.)
+const PIXEL_TAGS: [u16; 6] = [40961, 37121, 37122, 40962, 40963, 42240];
+
+fn camera_only(mut exif: Vec<Field>) -> Vec<Field> {
+    exif.retain(|f| !PIXEL_TAGS.contains(&f.tag));
+    exif
+}
+
 fn source_metadata(source: &Arc<Source>, path: &Arc<str>) -> Result<DngMetadata> {
     let file = source.open_raw(&components(path)?)?;
     ensure!(file.metadata()?.is_file(), "not a file");
@@ -744,7 +756,7 @@ fn source_metadata(source: &Arc<Source>, path: &Arc<str>) -> Result<DngMetadata>
     Ok(DngMetadata {
         order: t.order,
         ifd0: t.ifd0,
-        exif: t.exif,
+        exif: camera_only(t.exif),
         gps: t.gps,
         xmp: t.xmp.map(|(offset, length)| Xmp::InPlace {
             source: source.clone(),
@@ -775,7 +787,7 @@ fn store_metadata(conn: &Mutex<rusqlite::Connection>, key: &str) -> Result<DngMe
     Ok(DngMetadata {
         order: t.order,
         ifd0: t.ifd0,
-        exif: t.exif,
+        exif: camera_only(t.exif),
         gps: t.gps,
         xmp,
     })
@@ -1253,6 +1265,7 @@ mod tests {
             },
             Field::short(o, 34855, 400),
             Field::ascii(36867, "2020:01:02 03:04:05"),
+            Field::short(o, 40961, 1), // the camera file's sRGB, never served
             Field {
                 tag: 37500,
                 typ: 7,
