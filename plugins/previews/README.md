@@ -69,14 +69,16 @@ application removed it or the whole XMP block, is recorded as cleared: Rating
 `0`, an empty Label, ColorClass `0`, Tagged `False`, with the old values as
 `previous`.
 
-Captured ratings outlive the session. When a disk is built, every served JPEG
-with a sidecar in the ratings folder is served with the sidecar's values merged
-into its XMP packet: only those four properties are replaced, in one packet, and
+Captured ratings outlive the session. When a disk is built, every served JPEG,
+DNG or TIFF with a sidecar in the ratings folder is served with the sidecar's
+values merged into its XMP packet (a JPEG's XMP segment, a DNG's tag 700): only those four properties are replaced, in one packet, and
 the rest of the JPEG's own (or its metadata DNG's) XMP is kept. An application
 that re-reads the file after a restart therefore finds the ratings it wrote. The
 served modification time stays the source file's, so it does not change between
 sessions; it can still differ from what the application saw after its own write
-in an earlier session. DNGs are not yet served with their captured ratings.
+in an earlier session. A DNG's merged packet is appended after the file with the
+copied IFD0 pointing at it, as for an added preview, so every original byte stays
+in place.
 
 ## Map file
 

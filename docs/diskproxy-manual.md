@@ -615,12 +615,12 @@ property is recorded as cleared (Rating `0`, an empty Label, ColorClass `0`,
 Tagged `False`), with the old value as `previous`.
 
 Captured ratings outlive the session. The next time the disk is built, every
-served JPEG with a sidecar is served with the sidecar's values merged into its
-XMP packet. Only those four properties are replaced; the rest of the JPEG's own
+served JPEG, DNG or TIFF with a sidecar is served with the sidecar's values
+merged into its XMP packet. A DNG gets the merged packet appended after its
+data, through the same copied IFD0 that adds a preview. Only those four properties are replaced; the rest of the JPEG's own
 or its metadata file's XMP is kept, in one packet. An application that re-reads
 the file after a restart finds the ratings it wrote rather than losing them. The
-served modification time stays the source file's. DNGs are not yet served with
-their captured ratings.
+served modification time stays the source file's.
 
 These sidecars use the Adobe naming convention, so a DNG's sidecar can later sit
 beside its original, where Lightroom or another application can read it. To

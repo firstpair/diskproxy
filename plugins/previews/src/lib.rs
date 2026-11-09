@@ -126,6 +126,14 @@ fn components(path: &str) -> Result<Vec<String>> {
     Ok(parts)
 }
 
+/// Whether a served file is a DNG or TIFF, whose XMP lives in tag 700.
+fn is_tiff(parts: &[String]) -> bool {
+    parts.last().is_some_and(|n| {
+        let n = n.to_ascii_lowercase();
+        n.ends_with(".dng") || n.ends_with(".tif") || n.ends_with(".tiff")
+    })
+}
+
 /// A path in composed Unicode (NFC), so a map matches names whichever form
 /// the filesystem stores them in (HFS+ decomposes them).
 fn nfc(path: &str) -> std::borrow::Cow<'_, str> {
@@ -263,7 +271,7 @@ impl Previews {
     fn captured(&self, parts: &[String]) -> Option<capture::Fields> {
         let capture = self.capture.as_ref()?;
         let name = parts.last()?.to_ascii_lowercase();
-        if !(name.ends_with(".jpg") || name.ends_with(".jpeg")) {
+        if !(name.ends_with(".jpg") || name.ends_with(".jpeg") || is_tiff(parts)) {
             return None;
         }
         let rel = capture::sidecar_path(parts)?;
@@ -305,15 +313,22 @@ impl Plugin for Previews {
             None => return Ok(None),
         };
         let size = file.metadata()?.len();
-        let result = if let Some(preview) = &entry.preview {
-            let source = self.previews.clone().context("no preview_root")?;
-            let known = match (entry.preview_size, entry.preview_mtime, entry.preview_dims) {
-                (Some(size), Some((mtime, nsec)), Some(dims)) => {
-                    Some((Stamp { size, mtime, nsec }, dims))
-                }
-                _ => None,
+        let label = parts.join("/");
+        let result = if entry.preview.is_some() || (is_tiff(parts) && ratings.is_some()) {
+            let preview = match &entry.preview {
+                Some(path) => Some(Preview {
+                    source: self.previews.clone().context("no preview_root")?,
+                    path: path.clone(),
+                    known: match (entry.preview_size, entry.preview_mtime, entry.preview_dims) {
+                        (Some(size), Some((mtime, nsec)), Some(dims)) => {
+                            Some((Stamp { size, mtime, nsec }, dims))
+                        }
+                        _ => None,
+                    },
+                }),
+                None => None,
             };
-            dng_with_preview(file, size, source, preview.clone(), known)
+            dng_compose(file, size, preview, ratings.as_ref(), &label)
         } else if entry.metadata.is_some()
             || entry.orientation.is_some()
             || entry.datetime.is_some()
@@ -346,7 +361,7 @@ impl Plugin for Previews {
                 datetime,
                 dng,
                 ratings.as_ref(),
-                &parts.join("/"),
+                &label,
             )
         } else {
             return Ok(None);
@@ -477,13 +492,28 @@ impl Order {
     }
 }
 
-fn dng_with_preview(
+/// A preview JPEG to add to a DNG/TIFF as a reduced-resolution SubIFD.
+struct Preview {
+    source: Arc<Source>,
+    path: Arc<str>,
+    known: Option<(Stamp, (u32, u32))>,
+}
+
+/// A DNG/TIFF with a preview JPEG added as a SubIFD and/or its XMP packet
+/// (tag 700) replaced by one holding captured `ratings`. Every original byte
+/// stays at its original offset: IFD0 is copied after the original data with
+/// only the SubIFDs and XMP entries generated, and the 8-byte header is
+/// repointed at the copy.
+fn dng_compose(
     file: &File,
     size: u64,
-    previews: Arc<Source>,
-    preview: Arc<str>,
-    known: Option<(Stamp, (u32, u32))>,
+    preview: Option<Preview>,
+    ratings: Option<&capture::Fields>,
+    label: &str,
 ) -> Result<Option<Vec<Piece>>> {
+    if preview.is_none() && ratings.is_none() {
+        return Ok(None);
+    }
     let head = Head::new(file, size)?;
     let header = head.get(0, 8)?;
     let o = Order(match &header[..2] {
@@ -500,12 +530,49 @@ fn dng_with_preview(
         tags.windows(2).all(|w| w[0] < w[1]),
         "IFD0 tags are not sorted"
     );
-    // The existing SubIFDs entry (replaced) or the position to insert one.
-    let existing = tags.iter().position(|&t| t == 330);
-    let split = existing.unwrap_or_else(|| tags.iter().position(|&t| t > 330).unwrap_or(n));
+    let entry = |tag| {
+        tags.iter()
+            .position(|&t| t == tag)
+            .map(|i| &body[12 * i..12 * i + 12])
+    };
+
+    // The XMP packet with captured ratings merged into the file's own.
+    let xmp_type = entry(700).map_or(1, |e| o.u16(&e[2..4]));
+    let xmp = match ratings {
+        None => None,
+        Some(values) => {
+            let merged = (|| -> Result<Vec<u8>> {
+                let base = match entry(700) {
+                    Some(e) => {
+                        let count = o.u32(&e[4..8]) as usize;
+                        ensure!(count <= 4 << 20, "XMP packet too large");
+                        Some(if count <= 4 {
+                            e[8..8 + count].to_vec()
+                        } else {
+                            head.get(o.u32(&e[8..12]) as u64, count)?
+                        })
+                    }
+                    None => None,
+                };
+                capture::with_fields(base.as_deref(), values)
+            })();
+            match merged {
+                Ok(packet) => Some(packet),
+                Err(e) => {
+                    eprintln!("ratings: not served in {label}: {e:#}");
+                    None
+                }
+            }
+        }
+    };
+    if preview.is_none() && xmp.is_none() {
+        return Ok(None);
+    }
+
     let mut subifds = Vec::new();
-    if let Some(i) = existing {
-        let e = &body[12 * i..12 * i + 12];
+    if preview.is_some()
+        && let Some(e) = entry(330)
+    {
         let (typ, count) = (o.u16(&e[2..4]), o.u32(&e[4..8]) as usize);
         ensure!(matches!(typ, 4 | 13) && count > 0, "unexpected SubIFDs tag");
         if count == 1 {
@@ -515,65 +582,91 @@ fn dng_with_preview(
             subifds.extend(at.chunks(4).map(|c| o.u32(c)));
         }
     }
-    let (stamp, (width, height)) = match known {
-        Some(k) => k,
-        None => {
-            let jpeg = previews.open_raw(&components(&preview)?)?;
-            let stamp = Stamp::of(&jpeg)?;
-            (stamp, jpeg_dimensions(&jpeg, stamp.size)?)
+    let preview = match preview {
+        Some(p) => {
+            let (stamp, dims) = match p.known {
+                Some(k) => k,
+                None => {
+                    let jpeg = p.source.open_raw(&components(&p.path)?)?;
+                    let stamp = Stamp::of(&jpeg)?;
+                    (stamp, jpeg_dimensions(&jpeg, stamp.size)?)
+                }
+            };
+            Some((p, stamp, dims))
         }
+        None => None,
     };
-    let jpeg_size = stamp.size;
     let fits = |v: u64| u32::try_from(v).context("file too large for classic TIFF");
 
-    // Appended layout: [pad] SubIFD array | preview IFD | BitsPerSample | new IFD0 | [pad] JPEG
+    // Appended layout: [pad] (SubIFD array | preview IFD | BitsPerSample)
+    // | new IFD0 | [XMP] | [pad] [JPEG]
     let base = size + (size & 1);
-    let sub_array = base;
-    let prev_ifd = sub_array + 4 * (subifds.len() as u64 + 1);
     const PREV_ENTRIES: u64 = 11;
-    let bps = prev_ifd + 2 + 12 * PREV_ENTRIES + 4;
-    let new_ifd0 = bps + 6;
-    let count = n + existing.is_none() as usize;
-    let mut jpeg_at = new_ifd0 + 2 + 12 * count as u64 + 4;
-    jpeg_at += jpeg_at & 1;
+    let mut at = base;
+    let (sub_array, prev_ifd, bps) = (at, at + 4 * (subifds.len() as u64 + 1), 0);
+    let bps = if preview.is_some() {
+        let b = prev_ifd + 2 + 12 * PREV_ENTRIES + 4;
+        at = b + 6;
+        b
+    } else {
+        bps
+    };
+    let new_ifd0 = at;
+    let added = (preview.is_some() && entry(330).is_none()) as usize
+        + (xmp.is_some() && entry(700).is_none()) as usize;
+    let count = n + added;
+    at = new_ifd0 + 2 + 12 * count as u64 + 4;
+    let xmp_at = at;
+    if let Some(x) = &xmp {
+        at += x.len() as u64;
+    }
+    let jpeg_at = at + (at & 1);
 
-    let prev = [
-        o.entry(254, 4, 1, 1), // NewSubFileType: reduced-resolution preview
-        o.entry(256, 4, 1, width),
-        o.entry(257, 4, 1, height),
-        o.entry(258, 3, 3, fits(bps)?), // BitsPerSample 8,8,8
-        o.entry(259, 3, 1, 7),          // Compression: JPEG
-        o.entry(262, 3, 1, 6),          // Photometric: YCbCr
-        o.entry(273, 4, 1, fits(jpeg_at)?),
-        o.entry(277, 3, 1, 3),
-        o.entry(278, 4, 1, height),
-        o.entry(279, 4, 1, fits(jpeg_size)?),
-        o.entry(50970, 4, 1, 2), // PreviewColorSpace: sRGB
-    ];
-    let mut new_subifds = subifds;
-    new_subifds.push(fits(prev_ifd)?);
-    let sub_entry = o.entry(330, 4, new_subifds.len() as u32, fits(sub_array)?);
-
-    // Generated: [pad] SubIFD array, preview IFD, BitsPerSample, new IFD0 count.
+    // Generated entries replacing or joining IFD0's, in tag order.
+    let mut generated: Vec<(u16, Vec<u8>)> = Vec::new();
     let mut block = vec![0u8; (base - size) as usize];
-    for s in &new_subifds {
-        block.extend(o.p32(*s));
+    if let Some((_, stamp, (width, height))) = &preview {
+        let prev = [
+            o.entry(254, 4, 1, 1), // NewSubFileType: reduced-resolution preview
+            o.entry(256, 4, 1, *width),
+            o.entry(257, 4, 1, *height),
+            o.entry(258, 3, 3, fits(bps)?), // BitsPerSample 8,8,8
+            o.entry(259, 3, 1, 7),          // Compression: JPEG
+            o.entry(262, 3, 1, 6),          // Photometric: YCbCr
+            o.entry(273, 4, 1, fits(jpeg_at)?),
+            o.entry(277, 3, 1, 3),
+            o.entry(278, 4, 1, *height),
+            o.entry(279, 4, 1, fits(stamp.size)?),
+            o.entry(50970, 4, 1, 2), // PreviewColorSpace: sRGB
+        ];
+        let mut new_subifds = subifds;
+        new_subifds.push(fits(prev_ifd)?);
+        generated.push((
+            330,
+            o.entry(330, 4, new_subifds.len() as u32, fits(sub_array)?),
+        ));
+        for s in &new_subifds {
+            block.extend(o.p32(*s));
+        }
+        block.extend(o.p16(PREV_ENTRIES as u16));
+        for e in &prev {
+            block.extend(e);
+        }
+        block.extend([0; 4]);
+        for _ in 0..3 {
+            block.extend(o.p16(8));
+        }
     }
-    block.extend(o.p16(PREV_ENTRIES as u16));
-    for e in &prev {
-        block.extend(e);
-    }
-    block.extend([0; 4]);
-    for _ in 0..3 {
-        block.extend(o.p16(8));
+    if let Some(x) = &xmp {
+        let typ = if matches!(xmp_type, 1 | 7) {
+            xmp_type
+        } else {
+            1
+        };
+        generated.push((700, o.entry(700, typ, x.len() as u32, fits(xmp_at)?)));
     }
     block.extend(o.p16(count as u16));
-    // The new IFD0 reuses the original entries straight from the file: those
-    // before the SubIFDs tag, the new SubIFDs entry, then the rest plus the
-    // next-IFD pointer. Only the SubIFDs entry is generated.
-    let entries_at = ifd0 + 2;
-    let after = split + existing.is_some() as usize;
-    let mut pad = vec![0u8; (jpeg_at - (new_ifd0 + 2 + 12 * count as u64 + 4)) as usize];
+
     let mut new_header = header[..4].to_vec();
     new_header.extend(o.p32(fits(new_ifd0)?));
     let mut pieces = vec![
@@ -583,26 +676,40 @@ fn dng_with_preview(
             length: size - 8,
         },
         Piece::Bytes(block),
-        Piece::Own {
-            offset: entries_at,
-            length: 12 * split as u64,
-        },
-        Piece::Bytes(sub_entry),
-        Piece::Own {
-            offset: entries_at + 12 * after as u64,
-            length: 12 * (n - after) as u64 + 4,
-        },
     ];
-    if !pad.is_empty() {
-        pieces.push(Piece::Bytes(std::mem::take(&mut pad)));
+    // The new IFD0 reuses the original entries straight from the file; only
+    // the generated entries are new.
+    let entries_at = ifd0 + 2;
+    let mut cur = 0;
+    for (tag, bytes) in generated {
+        let pos = tags.iter().position(|&t| t >= tag).unwrap_or(n);
+        if pos > cur {
+            pieces.push(Piece::Own {
+                offset: entries_at + 12 * cur as u64,
+                length: 12 * (pos - cur) as u64,
+            });
+        }
+        pieces.push(Piece::Bytes(bytes));
+        cur = pos + (tags.get(pos) == Some(&tag)) as usize;
     }
-    pieces.push(Piece::Other {
-        source: previews,
-        path: preview,
-        offset: 0,
-        length: jpeg_size,
-        stamp: Some(stamp),
+    pieces.push(Piece::Own {
+        offset: entries_at + 12 * cur as u64,
+        length: 12 * (n - cur) as u64 + 4, // and the next-IFD pointer
     });
+    let mut tail = xmp.unwrap_or_default();
+    if let Some((p, stamp, _)) = preview {
+        tail.resize((jpeg_at - xmp_at) as usize, 0); // and the pad
+        pieces.push(Piece::Bytes(tail));
+        pieces.push(Piece::Other {
+            source: p.source,
+            path: p.path,
+            offset: 0,
+            length: stamp.size,
+            stamp: Some(stamp),
+        });
+    } else if !tail.is_empty() {
+        pieces.push(Piece::Bytes(tail));
+    }
     Ok(Some(pieces))
 }
 
@@ -1735,6 +1842,74 @@ mod tests {
                 .windows(6)
                 .any(|w| w == b"Exif\0\0")
         );
+        Ok(())
+    }
+
+    #[test]
+    fn captured_ratings_are_served_back_in_dngs() -> Result<()> {
+        let j = jpeg(1600, 1064);
+        let o = Order(true);
+        // A DNG with its own XMP (Lightroom's xmpMM and a stale rating).
+        let own = br#"<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><rdf:Description rdf:about="" xmlns:xmp="http://ns.adobe.com/xap/1.0/" xmlns:xmpMM="http://ns.adobe.com/xap/1.0/mm/" xmp:Rating="1" xmpMM:DocumentID="lightroom"/></rdf:RDF></x:xmpmeta>"#;
+        let mut with_xmp = dng_with_metadata(own);
+        // tiff() has no XMP: rated without a preview mapping.
+        let plain = tiff();
+        let dir = tempfile::tempdir()?;
+        let d = dir.path();
+        std::fs::create_dir_all(d.join("src/a"))?;
+        std::fs::create_dir_all(d.join("prev/ab"))?;
+        std::fs::create_dir_all(d.join("ratings/a"))?;
+        with_xmp.extend(b"RAWDATA"); // keep the file longer than its IFDs
+        std::fs::write(d.join("src/a/X.DNG"), &with_xmp)?;
+        std::fs::write(d.join("src/a/Y.DNG"), &plain)?;
+        std::fs::write(d.join("prev/ab/x.jpg"), &j)?;
+        let values: capture::Fields = [("xmp:Rating", "4"), ("photomechanic:ColorClass", "2")]
+            .map(|(k, v)| (k.to_owned(), v.to_owned()))
+            .into();
+        for name in ["X.xmp", "Y.xmp"] {
+            std::fs::write(d.join("ratings/a").join(name), capture::sidecar(&values))?;
+        }
+        std::fs::write(d.join("map.tsv"), "a/X.DNG\tpreview=ab/x.jpg\n")?;
+        let p = Previews::new(Config {
+            map: Some(d.join("map.tsv")),
+            preview_root: Some(d.join("prev")),
+            ratings: Some(d.join("ratings")),
+            ..Config::default()
+        })?;
+        for (name, src, has_preview) in [("X.DNG", &with_xmp, true), ("Y.DNG", &plain, false)] {
+            let parts = vec!["a".to_string(), name.to_string()];
+            let f = File::open(d.join("src/a").join(name))?;
+            let out = assemble(p.compose(&parts, &f)?.unwrap(), src, &j);
+            assert_eq!(
+                &out[8..src.len()],
+                &src[8..],
+                "{name}: original bytes in place"
+            );
+            let ifd0 = o.u32(&out[4..]) as usize;
+            let tags: Vec<u16> = ifd(&out, ifd0).iter().map(|e| e.0).collect();
+            assert!(tags.windows(2).all(|w| w[0] < w[1]), "{name}: IFD0 sorted");
+            assert!(tags.contains(&700), "{name}: XMP entry");
+            assert_eq!(tags.contains(&330), has_preview || name == "Y.DNG");
+            let served = d.join(format!("served-{name}"));
+            std::fs::write(&served, &out)?;
+            let packet = capture::packet(name, &File::open(&served)?)?.unwrap();
+            let f = capture::fields(&packet)?;
+            assert_eq!(f, values, "{name}: one packet with the captured values");
+            if has_preview {
+                let text = String::from_utf8(packet)?;
+                assert!(
+                    text.contains("xmpMM:DocumentID=\"lightroom\""),
+                    "own XMP kept"
+                );
+                let sub = ifd(&out, ifd0).into_iter().find(|e| e.0 == 330).unwrap();
+                let prev = ifd(
+                    &out,
+                    o.u32(&out[sub.3 as usize + 4 * (sub.2 as usize - 1)..]) as usize,
+                );
+                let start = prev.iter().find(|e| e.0 == 273).unwrap().3 as usize;
+                assert_eq!(&out[start..], &j[..], "{name}: preview JPEG at the end");
+            }
+        }
         Ok(())
     }
 
