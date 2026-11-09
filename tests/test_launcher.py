@@ -43,6 +43,7 @@ printf '%s\\n' '{"VolumeUUID":"SYNTHETIC-VOLUME-ID"}'
         self.env = dict(os.environ, PATH=str(self.bin) + ":" + os.environ["PATH"],
                         DISKPROXY_SERVER=str(self.bin / "server"),
                         DISKPROXY_STATE_DIR=str(self.root / "state"),
+                        DISKPROXY_CONFIG=str(self.root / "no-default-config.json"),
                         DISKPROXY_TEST_ARGS=str(self.root / "arguments"))
 
     def write_executable(self, name, contents):
@@ -54,12 +55,14 @@ printf '%s\\n' '{"VolumeUUID":"SYNTHETIC-VOLUME-ID"}'
         return subprocess.run([str(PROJECT / "bin/diskproxy"), *args], env=self.env,
                               capture_output=True, text=True, timeout=30)
 
+    def session(self, name="my config"):
+        return self.root / "state/sessions" / name
+
     def tearDown(self):
-        pid_file = self.root / "state/session/pid"
-        if pid_file.exists():
+        for pid_file in self.root.glob("state/**/pid"):
             try:
                 os.kill(int(pid_file.read_text()), 15)
-            except ProcessLookupError:
+            except (ProcessLookupError, ValueError):
                 pass
         self.temp.cleanup()
 
@@ -72,11 +75,13 @@ printf '%s\\n' '{"VolumeUUID":"SYNTHETIC-VOLUME-ID"}'
         self.assertIn("/source with spaces", args)
         self.assertIn("plugins.pmp.hide_ingested=true", args)
         self.assertEqual(args[:3], ["serve", "--config", str(self.config)])
-        self.assertIn("Proxy running", self.run_launcher("status").stdout)
-        self.assertNotEqual(self.run_launcher("start").returncode, 0)
+        self.assertIn("my config: proxy running", self.run_launcher("status").stdout)
+        again = self.run_launcher("--config", str(self.config), "start")
+        self.assertNotEqual(again.returncode, 0)
+        self.assertIn("already running", again.stderr)
         stopped = self.run_launcher("stop")
         self.assertEqual(stopped.returncode, 0, stopped.stderr)
-        self.assertFalse((self.root / "state/session").exists())
+        self.assertFalse(self.session().exists())
 
     def test_plain_launch_config_after_command_and_busy_detach(self):
         started = self.run_launcher("--config", str(self.config))
@@ -85,16 +90,16 @@ printf '%s\\n' '{"VolumeUUID":"SYNTHETIC-VOLUME-ID"}'
         failed = self.run_launcher("stop")
         self.assertNotEqual(failed.returncode, 0)
         self.assertIn("left running", failed.stderr)
-        self.assertIn("Proxy running", self.run_launcher("status").stdout)
+        self.assertIn("proxy running", self.run_launcher("status").stdout)
         (self.root / "busy").unlink()
         self.assertEqual(self.run_launcher("stop").returncode, 0)
 
     def test_config_after_start_and_identity_mismatch_keep_server(self):
         started = self.run_launcher("start", "--config", str(self.config))
         self.assertEqual(started.returncode, 0, started.stderr)
-        (self.root / "state/session/volume-id").write_text("DIFFERENT-ID\n")
+        (self.session() / "volume-id").write_text("DIFFERENT-ID\n")
         self.assertNotEqual(self.run_launcher("stop").returncode, 0)
-        self.assertIn("Proxy running", self.run_launcher("status").stdout)
+        self.assertIn("proxy running", self.run_launcher("status").stdout)
         self.assertTrue(self.device.exists())
 
     def test_new_card_prints_only_the_default_registration_command(self):
@@ -104,7 +109,7 @@ printf '%s\\n' '{"VolumeUUID":"SYNTHETIC-VOLUME-ID"}'
         self.assertEqual(started.returncode, 78)
         self.assertEqual(started.stderr, "Run diskproxy-server.\n")
         self.assertEqual(started.stdout, "")
-        self.assertFalse((self.root / "state/session").exists())
+        self.assertEqual(list(self.root.glob("state/sessions/*")), [])
 
     def test_equivalent_pmp_alias_config_needs_no_extra_options(self):
         self.write_executable("server", "#!/bin/sh\nexit 78\n")
@@ -123,7 +128,7 @@ printf '%s\\n' '{"VolumeUUID":"SYNTHETIC-VOLUME-ID"}'
         self.assertIn("Run diskproxy-server", started.stderr)
         self.assertIn("another", started.stderr)
         self.assertNotIn("--source-offset", started.stderr)
-        self.assertFalse((self.root / "state/session").exists())
+        self.assertEqual(list(self.root.glob("state/sessions/*")), [])
 
     def test_unexpected_startup_error_prints_diagnostics_and_options(self):
         self.write_executable("server", "#!/bin/sh\necho 'invalid config' >&2\nexit 1\n")
@@ -135,7 +140,42 @@ printf '%s\\n' '{"VolumeUUID":"SYNTHETIC-VOLUME-ID"}'
     def test_incompatible_lifecycle_flags_fail_before_server(self):
         for arg in ("--register", "--check", "--mode=webdav"):
             self.assertNotEqual(self.run_launcher("start", arg).returncode, 0)
+        self.assertEqual(list(self.root.glob("state/sessions/*")), [])
+
+
+    def test_two_configs_run_at_once_and_stop_needs_a_choice(self):
+        other = self.root / "photocat.json"
+        other.write_text("{}")
+        for config in (self.config, other):
+            started = self.run_launcher("--config", str(config), "start")
+            self.assertEqual(started.returncode, 0, started.stderr)
+        self.assertIn(f"diskproxy --config {other} stop", started.stdout.replace("\\", ""))
+        status = self.run_launcher("status").stdout
+        self.assertIn("my config: proxy running", status)
+        self.assertIn("photocat: proxy running", status)
+        refused = self.run_launcher("stop")
+        self.assertNotEqual(refused.returncode, 0)
+        self.assertIn("Choose one", refused.stderr)
+        self.assertTrue(self.session().exists() and self.session("photocat").exists())
+        self.assertEqual(self.run_launcher("stop", "--config", str(other)).returncode, 0)
+        self.assertFalse(self.session("photocat").exists())
+        self.assertIn("my config: proxy running", self.run_launcher("status").stdout)
+        self.assertEqual(self.run_launcher("--config", str(self.config), "stop").returncode, 0)
+        self.assertEqual(self.run_launcher("status").stdout, "No managed proxy is running.\n")
+
+    def test_a_session_from_the_older_launcher_is_still_stopped(self):
+        self.env["DISKPROXY_CONFIG"] = str(self.config)
+        started = self.run_launcher("start")
+        self.assertEqual(started.returncode, 0, started.stderr)
+        # Where the older launcher kept its single session.
+        self.session().rename(self.root / "state/session")
+        self.assertIn("default: proxy running", self.run_launcher("status").stdout)
+        again = self.run_launcher("start")
+        self.assertNotEqual(again.returncode, 0, "the default config's view is the legacy one")
+        stopped = self.run_launcher("stop")
+        self.assertEqual(stopped.returncode, 0, stopped.stderr)
         self.assertFalse((self.root / "state/session").exists())
+        self.assertFalse(self.device.exists(), "its disk was detached")
 
 
 if __name__ == "__main__":

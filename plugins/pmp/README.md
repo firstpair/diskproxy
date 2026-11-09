@@ -39,6 +39,8 @@ diskproxy --config ~/.config/diskproxy/pmp.json start
 For a new card, complete first registration below before starting an ingest.
 
 `diskproxy` without a subcommand also starts; `diskproxy status` shows the session.
+A card view and another view (such as a previews library, with its own config)
+can run at the same time; `stop` then takes `--config` to choose.
 `pmp-card` and its start/status/stop subcommands continue to work, selecting
 `~/.config/diskproxy/pmp.json` explicitly. Another source can be specified as a
 positional path. No manual server launch or URL copying is required.

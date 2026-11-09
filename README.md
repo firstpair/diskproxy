@@ -51,6 +51,18 @@ diskproxy status
 diskproxy stop
 ```
 
+Each config file gets its own view, so a library and a camera card can be
+served at the same time:
+
+```sh
+diskproxy --config ~/.config/diskproxy/photocat.json start
+diskproxy start                       # the default config, e.g. a card
+diskproxy status                      # lists both
+diskproxy --config ~/.config/diskproxy/photocat.json stop
+```
+
+With several views running, `stop` needs `--config` to say which.
+
 Start launches the server in the background, attaches its read-only disk, and
 prints the mount location. Large trees take a while to scan. The launcher waits
 up to 15 minutes while the server is alive and shows its progress on one line,

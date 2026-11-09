@@ -10,7 +10,39 @@ state=${DISKPROXY_STATE_DIR:-${PMP_CARD_STATE_DIR:-$HOME/Library/Caches/diskprox
 if [[ -z ${DISKPROXY_STATE_DIR:-} && -z ${PMP_CARD_STATE_DIR:-} && -d $HOME/Library/Caches/pmp-card/session ]]; then
   state=$HOME/Library/Caches/pmp-card
 fi
-session=$state/session
+# One session folder per config file, so several views can run at once:
+# $state/sessions/<config name>. A session started by an older launcher in
+# $state/session is still found, as the default config's session.
+legacy=$state/session
+session=''
+session_name() {  # config file -> session name
+  local name=${${1:t}%.json}
+  name=${name//[^A-Za-z0-9._ -]/_}
+  [[ -n $name && $name != .* ]] || name=default
+  print -r -- "$name"
+}
+is_default_config() {
+  [[ -z $1 || $1 == "$default_config" ]] || { [[ -f $1 && -f $default_config ]] && cmp -s "$1" "$default_config"; }
+}
+session_for() {  # config file (may be empty) -> session folder
+  local dir=$state/sessions/$(session_name "${1:-$default_config}")
+  if [[ ! -d $dir && -d $legacy ]] && is_default_config "$1"; then dir=$legacy; fi
+  print -r -- "$dir"
+}
+running_sessions() {
+  local -a found=()
+  [[ -d $legacy ]] && found+=("$legacy")
+  found+=("$state"/sessions/*(N/))
+  print -rl -- "${found[@]}"
+}
+label_of() { [[ $1 == "$legacy" ]] && print default || print -r -- "${1:t}"; }
+show_status() {
+  local name=$(label_of "$session")
+  if alive; then
+    print -r -- "$name: proxy running (PID $(<$session/pid))."
+    [[ ! -f $session/mount ]] || print -r -- "  Volume: $(<$session/mount)"
+  else print -r -- "$name: not running (stale session; diskproxy --config FILE stop clears it)."; fi
+}
 alive() {
   [[ -f $session/pid && -f $session/birth ]] || return 1
   local pid=$(<$session/pid)
@@ -108,18 +140,53 @@ while (( $# )); do
     *) break ;;
   esac
 done
+selected_config() {
+  local i
+  for (( i = 1; i <= ${#config_args}; i++ )); do
+    case $config_args[i] in
+      --config) print -r -- "$config_args[i+1]"; return ;;
+      --config=*) print -r -- "${config_args[i]#--config=}"; return ;;
+    esac
+  done
+}
 case ${1:-} in
   start) shift ;;
-  stop) stop_session; exit ;;
-  status)
-    if alive; then
-      print "Proxy running (PID $(<$session/pid))."
-      [[ ! -f $session/mount ]] || print "Volume: $(<$session/mount)"
-    else print 'No managed proxy is running.'; fi
-    exit ;;
+  stop|status)
+    command=$1; shift
+    while (( $# )); do  # also accept: diskproxy stop --config FILE
+      case $1 in
+        --config) (( $# >= 2 )) || { print -u2 '--config needs a filename'; exit 1; }
+          config_args+=(--config "$2"); explicit_config=1; shift 2 ;;
+        --config=*) config_args+=("$1"); explicit_config=1; shift ;;
+        *) print -u2 "Unexpected argument: $1"; exit 1 ;;
+      esac
+    done
+    if (( explicit_config )); then
+      sessions=("$(session_for "$(selected_config)")")
+      [[ -d $sessions[1] ]] || sessions=()
+    else
+      sessions=("${(@f)$(running_sessions)}")
+      [[ -n ${sessions[1]:-} ]] || sessions=()
+    fi
+    if (( ${#sessions} == 0 )); then
+      print 'No managed proxy is running.'; exit
+    fi
+    if [[ $command == status ]]; then
+      for session in "${sessions[@]}"; do show_status; done
+      exit
+    fi
+    if (( ${#sessions} > 1 )); then
+      print -u2 'Several views are running:'
+      for session in "${sessions[@]}"; do show_status >&2; done
+      print -u2 'Choose one: diskproxy --config FILE stop'
+      exit 1
+    fi
+    session=$sessions[1]
+    stop_session; exit ;;
   -h|--help)
     print 'Usage: diskproxy [--config FILE] [start] [SOURCE] [server options]'
-    print '       diskproxy status | stop'
+    print '       diskproxy [--config FILE] status | stop'
+    print 'Each config file has its own view; several can run at once.'
     print 'Default config: ~/.config/diskproxy/config.json'
     print 'Plugin overrides: --set plugins.pmp.hide_ingested=true'
     exit ;;
@@ -135,10 +202,20 @@ if (( ! explicit_config )) && [[ -f $default_config ]]; then
   config_args+=(--config "$default_config")
 fi
 [[ -x $server ]] || { print -u2 "Server binary not found: $server"; exit 1; }
-mkdir -p "$state"
+config_file=$(selected_config)
+args=("$@")
+for (( i = 1; i <= ${#args}; i++ )); do  # a --config after start
+  case $args[i] in
+    --config) config_file=${args[i+1]:-} ;;
+    --config=*) config_file=${args[i]#--config=} ;;
+  esac
+done
+session=$(session_for "$config_file")
+mkdir -p "$state/sessions"
 if ! mkdir "$session" 2>/dev/null; then
-  print -u2 'A managed session already exists. Use diskproxy status or diskproxy stop.'; exit 1
+  print -u2 "A view for $(label_of "$session") is already running. Use diskproxy status or diskproxy stop."; exit 1
 fi
+if (( explicit_config )); then stop_hint="diskproxy --config ${(q)config_file} stop"; else stop_hint='diskproxy stop'; fi
 ready=0
 cleanup() {
   if (( ! ready )); then
@@ -149,13 +226,6 @@ cleanup() {
 trap cleanup EXIT
 # The config's mode chooses the transport: nfs mounts a writable NFS view;
 # anything else mounts the read-only (or shadow-writable) disk image.
-config_file=''
-for (( i = 1; i <= ${#config_args}; i++ )); do
-  case $config_args[i] in
-    --config) config_file=$config_args[i+1] ;;
-    --config=*) config_file=${config_args[i]#--config=} ;;
-  esac
-done
 mode=disk
 [[ -n $config_file && $(plutil -extract mode raw -o - "$config_file" 2>/dev/null) == nfs ]] && mode=nfs
 if [[ $mode == nfs ]]; then
@@ -236,7 +306,7 @@ if [[ $mode == nfs ]]; then
   disown 2>/dev/null || true
   print "Ready: $mount"
   print 'Writable NFS view: your changes go to the session overlay, never to the source.'
-  print 'After use: diskproxy stop'
+  print "After use: $stop_hint"
   exit 0
 fi
 [[ $url == http://127.0.0.1:*/card.img ]] || {
@@ -272,4 +342,4 @@ disown 2>/dev/null || true
 print "Ready: $mount"
 print 'Select this volume in your application (under Disks in PMP).'
 [[ $writable == true ]] && print 'Writable: changes go to a shadow file; ratings are harvested every minute.'
-print 'After use: diskproxy stop'
+print "After use: $stop_hint"

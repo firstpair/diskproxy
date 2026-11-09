@@ -148,6 +148,13 @@ Closing the Terminal window does not stop the view. `status` prints the
 server's process ID and the mounted volume. `stop` finishes any pending capture,
 unmounts, then stops the server and deletes the session folder.
 
+Each config file has its own view, so several can run at once, such as a photo
+library and a camera card. `--config FILE` selects the view for `start`,
+`status` and `stop`; without it, `start` uses the default config, `status` lists
+every running view, and `stop` stops the only one or, when several are running,
+names them and asks for `--config`. A second `start` of the same config is
+refused while its view runs.
+
 ### Choosing a source or config for one session
 
 A path after `start` overrides the configured source. `--config` selects
@@ -195,11 +202,13 @@ never detaches some other disk.
 
 ### The session folder
 
-Each session lives in `~/Library/Caches/diskproxy/session` (set
-`DISKPROXY_STATE_DIR` to move it). It holds the server's startup JSON and
-error log, the process ID and start time, the attachment details and, for
-writable views, the shadow file or overlay and the harvester's log. Only one
-managed session runs at a time; `start` refuses to start a second one.
+Each view's session lives in `~/Library/Caches/diskproxy/sessions/NAME`, where
+NAME is its config file's name without `.json` (set `DISKPROXY_STATE_DIR` to move
+the parent folder). It holds the server's startup JSON and error log, the process
+ID and start time, the attachment details and, for writable views, the shadow
+file or overlay and the harvester's log. A session started by an older launcher
+in `~/Library/Caches/diskproxy/session` is still found, as the default config's
+view.
 
 ## Configuration
 
@@ -802,7 +811,8 @@ the way, so it never detaches a different disk or stops a different process.
   preview is added, never replaced. A mapped JPEG whose own EXIF cannot be parsed
   is served unchanged. A metadata DNG's XMP is served as it is, so its `dc:format` still
   says `image/dng`.
-- **One session at a time** through the launcher.
+- **One view per config file** through the launcher; use separate config files
+  to serve several folders at once.
 - **A stable source:** files changed while served fail to read; restart after
   intended changes. A plugin's prepared state, such as the PMP history snapshot
   or the previews map, is fixed for the session.
@@ -817,7 +827,8 @@ the way, so it never detaches a different disk or stops a different process.
 | Symptom | Cause and fix |
 | --- | --- |
 | `Run diskproxy-server.` | The camera card is not registered; see [Registering a new card](#registering-a-new-card) |
-| `A managed session already exists.` | A view is already running; use `diskproxy status` or `diskproxy stop` |
+| `A view for NAME is already running.` | That config's view is running; use `diskproxy status` or `diskproxy --config FILE stop` |
+| `Several views are running` | `stop` needs `--config FILE` to choose one |
 | `Detach failed. Server left running...` | An application still has files open; close them and run `diskproxy stop` again |
 | `Mounted volume identity changed. Server left running.` | The mounted disk is not the one diskproxy attached; check it before doing anything else |
 | `Server did not provide a disk URL within 15 minutes.` | The scan did not finish; the server's errors are printed above the message |
@@ -890,8 +901,8 @@ Never use real photos, catalogs or application databases as test fixtures.
 | Command | Effect |
 | --- | --- |
 | `diskproxy [--config FILE] [start] [SOURCE] [options]` | Start a view in the background and mount it |
-| `diskproxy status` | Show the running server and volume |
-| `diskproxy stop` | Capture pending writes, unmount, stop the server and delete the session |
+| `diskproxy [--config FILE] status` | Show each running view's server and volume, or the selected one |
+| `diskproxy [--config FILE] stop` | Capture pending writes, unmount, stop the server and delete the session; with several views running, `--config` is required |
 | `diskproxy --help` | Short usage |
 
 Options after `start` are passed to the server, for example `--set KEY=VALUE`
