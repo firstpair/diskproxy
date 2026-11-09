@@ -5,7 +5,7 @@
   <meta name="generator" content="pandoc 3.12.1" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
   <meta name="author" content="FirstPair contributors" />
-  <meta name="dcterms.date" content="2026-11-05" />
+  <meta name="dcterms.date" content="2026-11-09" />
   <meta name="description" content="A complete guide to diskproxy, from everyday commands and configuration to writable views, camera-card ingest, preview libraries and writing plugins." />
   <title>The diskproxy Manual</title>
   <style>
@@ -112,7 +112,7 @@ img { max-width: 100%; height: auto; }
 <p class="subtitle">Virtual disks, NFS and WebDAV views that never write
 to the source</p>
 <p class="author">FirstPair contributors</p>
-<p class="date">2026-11-05</p>
+<p class="date">2026-11-09</p>
 </header>
 <nav id="TOC" role="doc-toc">
 <ul>
@@ -155,8 +155,8 @@ and no kernel extension, FUSE driver or Python runtime is needed.</p>
 developers who want to adapt it. It covers installation, everyday
 commands, every configuration key, the three transports, writable views,
 two complete workflows, writing a plugin, the internal architecture,
-limits and troubleshooting. The <a href="https://github.com/firstpair/diskproxy/blob/a6ab31bf24f533497ca8a5a9ac9280ab416765f0/README.md">README</a>
-is the short version; the <a href="https://github.com/firstpair/diskproxy/blob/a6ab31bf24f533497ca8a5a9ac9280ab416765f0/docs/blog/diskproxy/post.md">project
+limits and troubleshooting. The <a href="https://github.com/firstpair/diskproxy/blob/6ea6c13d71cfda5fe34a35e1e92a8835c0c5059e/README.md">README</a>
+is the short version; the <a href="https://github.com/firstpair/diskproxy/blob/6ea6c13d71cfda5fe34a35e1e92a8835c0c5059e/docs/blog/diskproxy/post.md">project
 story</a> explains how the design came about.</p>
 <h2 data-number="1.1" id="what-diskproxy-is-for"><span class="header-section-number">1.1</span> What diskproxy is for</h2>
 <p>diskproxy solves one general problem: an application expects files to
@@ -307,8 +307,10 @@ is not a terminal, each update is printed on its own line.</p>
 about a minute; the server then used about 1.2 GB of memory, with a 1.8
 GB peak during startup. With camera metadata spliced into its 566,000
 JPEGs (see the previews plugin below), the same tree scanned in 110
-seconds and used 1.9 GB, with a 2.5 GB peak. Trees of up to 8 million
-entries are supported.</p>
+seconds and used 1.9 GB, with a 2.5 GB peak. A second library of 835,383
+preview JPEGs, all but 440 with metadata from a 3.8 GB metadata store,
+scanned in 111 seconds on a busy machine and then used 1.64 GB. Trees of
+up to 8 million entries are supported.</p>
 <h3 data-number="1.3.3" id="when-the-volume-is-busy"><span class="header-section-number">1.3.3</span> When the volume is busy</h3>
 <p>If an application still has files open, macOS refuses to detach the
 disk, and <code>stop</code> says so and leaves the server running, so
@@ -493,7 +495,7 @@ and applications that work with folders rather than disks:</p>
 <code>http://127.0.0.1:PORT/TOKEN/</code>; treat the URL as a password.
 It implements <code>OPTIONS</code>, <code>PROPFIND</code> with depth 0
 or 1, <code>GET</code> and <code>HEAD</code> with single byte ranges,
-and rejects every other method with <code>403</code>. The <a href="https://github.com/firstpair/diskproxy/blob/a6ab31bf24f533497ca8a5a9ac9280ab416765f0/docs/webdav.md">transport
+and rejects every other method with <code>403</code>. The <a href="https://github.com/firstpair/diskproxy/blob/6ea6c13d71cfda5fe34a35e1e92a8835c0c5059e/docs/webdav.md">transport
 guide</a> lists the supported properties and limits.</p>
 <h2 data-number="1.6" id="writable-views"><span class="header-section-number">1.6</span> Writable views</h2>
 <p>Some applications write metadata into the files they show: Photo
@@ -581,7 +583,7 @@ which is how <code>diskproxy stop</code> ends it, it passes everything
 still pending before exiting.</p>
 <h2 data-number="1.7" id="workflow-camera-card-ingest-with-photo-mechanic-plus"><span class="header-section-number">1.7</span> Workflow: camera-card ingest
 with Photo Mechanic Plus</h2>
-<p>This is the workflow diskproxy was first written for. The <a href="https://github.com/firstpair/diskproxy/blob/a6ab31bf24f533497ca8a5a9ac9280ab416765f0/plugins/pmp/README.md">PMP
+<p>This is the workflow diskproxy was first written for. The <a href="https://github.com/firstpair/diskproxy/blob/6ea6c13d71cfda5fe34a35e1e92a8835c0c5059e/plugins/pmp/README.md">PMP
 guide</a> is the complete reference.</p>
 <h3 data-number="1.7.1" id="the-problem"><span class="header-section-number">1.7.1</span> The problem</h3>
 <p>Photo Mechanic Plus records each ingested file’s path, size and
@@ -634,7 +636,7 @@ ingested files.</p>
 <h2 data-number="1.8" id="workflow-a-photo-library-served-from-its-previews"><span class="header-section-number">1.8</span> Workflow: a photo library
 served from its previews</h2>
 <p>The <code>previews</code> plugin builds a browsable library out of
-files that already exist. Its <a href="https://github.com/firstpair/diskproxy/blob/a6ab31bf24f533497ca8a5a9ac9280ab416765f0/plugins/previews/README.md">guide</a>
+files that already exist. Its <a href="https://github.com/firstpair/diskproxy/blob/6ea6c13d71cfda5fe34a35e1e92a8835c0c5059e/plugins/previews/README.md">guide</a>
 is the complete reference; this section walks through a whole setup.</p>
 <h3 data-number="1.8.1" id="the-idea"><span class="header-section-number">1.8.1</span> The idea</h3>
 <p>Suppose your originals are offline, but you have two smaller things
@@ -727,18 +729,27 @@ the 8-byte TIFF header is changed, to point at the copied directory.
 Applications that show embedded previews then find the large JPEG;
 raw-capable applications still read the original image data. An existing
 large preview is kept and stays first.</p>
-<p>For a JPEG without EXIF, <code>metadata=</code> adds the EXIF and XMP
-of a DNG, typically the photo’s Lightroom Smart Preview, so the JPEG
-shows its camera, lens, exposure, serial number and GPS position. The
-plugin rebuilds the EXIF in a new segment, leaving out the DNG’s
-image-structure tags and maker note and adding the JPEG’s own pixel
-size. It reads the XMP segment’s contents from the DNG in place on every
-read, so they take no memory. The rebuilt EXIF, about 1.3 KB per JPEG,
-is kept in memory with the rest of the layout. <code>orientation=</code>
-and <code>datetime=</code> set Orientation and DateTimeOriginal in that
-segment, overriding the DNG, so portraits display upright and photos
-sort by capture time; they also work on their own. JPEGs that already
-have EXIF are served unchanged.</p>
+<p>For a JPEG, <code>metadata=</code> adds the EXIF and XMP of a DNG or
+TIFF, typically the photo’s Lightroom Smart Preview or an EXIF-only TIFF
+extracted with ExifTool, so the JPEG shows its camera, lens, exposure,
+serial number and GPS position. The plugin rebuilds the EXIF in a new
+segment, leaving out the DNG’s image-structure tags and maker note and
+adding the JPEG’s own pixel size. It reads the XMP segment’s contents
+from the DNG in place on every read, so they take no memory. The rebuilt
+EXIF, about 1.3 KB per JPEG, is kept in memory with the rest of the
+layout. <code>orientation=</code> and <code>datetime=</code> set
+Orientation and DateTimeOriginal in that segment, overriding the DNG, so
+portraits display upright and photos sort by capture time; they also
+work on their own.</p>
+<p>A JPEG that already has EXIF, such as a Lightroom preview with
+Orientation and color space, has that segment replaced by the rebuilt
+one. The JPEG’s own tags win over the DNG’s, since they describe the
+preview’s pixels, and the map’s values win over both. Tags that describe
+pixels (color space, components, compression, pixel size, gamma) are
+never taken from the metadata file, even when the JPEG lacks them: a
+camera original’s sRGB says nothing about a preview rendered in Adobe
+RGB. Its own XMP is kept unless the DNG has XMP, which then replaces
+it.</p>
 <p>Files not in the map are served unchanged. A mapped file that cannot
 be composed, because its JPEG is missing or the DNG has an unexpected
 structure, is served unchanged with a warning in the server log, rather
@@ -759,8 +770,13 @@ than failing the disk.</p>
 <span id="cb18-13"><a href="#cb18-13" aria-hidden="true" tabindex="-1"></a>  <span class="fu">}</span></span>
 <span id="cb18-14"><a href="#cb18-14" aria-hidden="true" tabindex="-1"></a><span class="fu">}</span></span></code></pre></div>
 <p><code>metadata_root</code> is needed only when the map has
-<code>metadata=</code> fields. Leave out <code>writable</code> and
-<code>ratings</code> for a purely read-only library. Start it with
+<code>metadata=</code> fields. For a very large library,
+<code>metadata_store</code> can name one SQLite file holding all the
+metadata files as blobs in a table
+<code>stubs(key TEXT PRIMARY KEY, exif BLOB)</code>, with
+<code>metadata=</code> giving the key; see the previews plugin guide.
+Leave out <code>writable</code> and <code>ratings</code> for a purely
+read-only library. Start it with
 <code>diskproxy --config library.json start</code>. Check one file
 through the mounted volume:</p>
 <div class="sourceCode" id="cb19"><pre class="sourceCode sh"><code class="sourceCode bash"><span id="cb19-1"><a href="#cb19-1" aria-hidden="true" tabindex="-1"></a><span class="ex">exiftool</span> <span class="at">-b</span> <span class="at">-PreviewImage</span> /Volumes/Library/2024/trip/IMG_0001.DNG <span class="kw">|</span> <span class="fu">wc</span> <span class="at">-c</span></span></code></pre></div>
@@ -851,8 +867,8 @@ application can read it.</p>
 trait from <code>diskproxy-core</code> and is linked into the
 application at build time. There is no dynamic loading: adding a plugin
 means adding a crate and registering it in <code>src/main.rs</code>. The
-<a href="https://github.com/firstpair/diskproxy/blob/a6ab31bf24f533497ca8a5a9ac9280ab416765f0/docs/plugins.md">plugin
-guide</a> gives every step, and the <a href="https://github.com/firstpair/diskproxy/blob/a6ab31bf24f533497ca8a5a9ac9280ab416765f0/examples/hide-plugin/README.md">hide
+<a href="https://github.com/firstpair/diskproxy/blob/6ea6c13d71cfda5fe34a35e1e92a8835c0c5059e/docs/plugins.md">plugin
+guide</a> gives every step, and the <a href="https://github.com/firstpair/diskproxy/blob/6ea6c13d71cfda5fe34a35e1e92a8835c0c5059e/examples/hide-plugin/README.md">hide
 example</a> is a complete, compiled reference with a patch that
 registers it.</p>
 <h3 data-number="1.9.1" id="the-trait"><span class="header-section-number">1.9.1</span> The trait</h3>
@@ -1045,14 +1061,16 @@ identities on the way, so it never detaches a different disk or stops a
 different process.</p>
 <h2 data-number="1.11" id="limits"><span class="header-section-number">1.11</span> Limits</h2>
 <ul>
-<li><strong>Disk mode:</strong> names must be UTF-8 and valid for exFAT,
-and timestamps must fall between 1980 and 2107. The case-folding table
-covers ASCII letters only. Unsupported names and times fail; they are
-not rewritten.</li>
+<li><strong>Disk mode:</strong> names must be UTF-8 and valid for exFAT;
+unsupported names fail rather than being rewritten. exFAT holds times
+from 1980 to 2107: a modification time outside that range, such as the
+1969-12-31 that a camera with an unset clock can leave, is shown as the
+nearest one it can hold, with a warning naming the file. The
+case-folding table covers ASCII letters only.</li>
 <li><strong>Previews plugin:</strong> classic TIFF only (not BigTIFF),
-files under 4 GiB. A preview is added, never replaced. JPEGs that
-already contain EXIF are served unchanged. A metadata DNG’s XMP is
-served as it is, so its <code>dc:format</code> still says
+files under 4 GiB. A preview is added, never replaced. A mapped JPEG
+whose own EXIF cannot be parsed is served unchanged. A metadata DNG’s
+XMP is served as it is, so its <code>dc:format</code> still says
 <code>image/dng</code>.</li>
 <li><strong>One session at a time</strong> through the launcher.</li>
 <li><strong>A stable source:</strong> files changed while served fail to

@@ -5,7 +5,7 @@
   <meta name="generator" content="pandoc" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
   <meta name="author" content="FirstPair contributors" />
-  <meta name="dcterms.date" content="2026-11-05" />
+  <meta name="dcterms.date" content="2026-11-09" />
   <meta name="description" content="A complete guide to diskproxy, from everyday commands and configuration to writable views, camera-card ingest, preview libraries and writing plugins." />
   <title>Limits</title>
   <style>
@@ -57,14 +57,16 @@
 <h2 data-number="1.11" id="limits"><span
 class="header-section-number">1.11</span> Limits</h2>
 <ul>
-<li><strong>Disk mode:</strong> names must be UTF-8 and valid for exFAT,
-and timestamps must fall between 1980 and 2107. The case-folding table
-covers ASCII letters only. Unsupported names and times fail; they are
-not rewritten.</li>
+<li><strong>Disk mode:</strong> names must be UTF-8 and valid for exFAT;
+unsupported names fail rather than being rewritten. exFAT holds times
+from 1980 to 2107: a modification time outside that range, such as the
+1969-12-31 that a camera with an unset clock can leave, is shown as the
+nearest one it can hold, with a warning naming the file. The
+case-folding table covers ASCII letters only.</li>
 <li><strong>Previews plugin:</strong> classic TIFF only (not BigTIFF),
-files under 4 GiB. A preview is added, never replaced. JPEGs that
-already contain EXIF are served unchanged. A metadata DNG’s XMP is
-served as it is, so its <code>dc:format</code> still says
+files under 4 GiB. A preview is added, never replaced. A mapped JPEG
+whose own EXIF cannot be parsed is served unchanged. A metadata DNG’s
+XMP is served as it is, so its <code>dc:format</code> still says
 <code>image/dng</code>.</li>
 <li><strong>One session at a time</strong> through the launcher.</li>
 <li><strong>A stable source:</strong> files changed while served fail to
