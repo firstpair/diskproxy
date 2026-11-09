@@ -125,7 +125,7 @@ class="header-section-number">1.10</span> Workflow: a photo library
 served from its previews</h2>
 <p>The <code>previews</code> plugin builds a browsable library out of
 files that already exist. Its <a
-href="https://github.com/firstpair/diskproxy/blob/c9d1fd1ad5dd0b315543b4b5eb052f7cb23eeb69/plugins/previews/README.md">guide</a>
+href="https://github.com/firstpair/diskproxy/blob/d3ed06eda23c59dd2a6afb86dc1199bfd7d9ca13/plugins/previews/README.md">guide</a>
 is the complete reference; this section walks through a whole setup.</p>
 <h3 data-number="1.10.1" id="the-idea"><span
 class="header-section-number">1.10.1</span> The idea</h3>
@@ -361,6 +361,19 @@ class="sourceCode json"><code class="sourceCode json"><span id="cb4-1"><a href="
 <code>previous</code> the values before this change. The ratings folder
 must be outside the served tree; the plugin refuses to start
 otherwise.</p>
+<p>Clearing is captured too. When a file captured before is written
+without one of these properties, because the application removed it or
+its whole XMP block, the property is recorded as cleared (Rating
+<code>0</code>, an empty Label, ColorClass <code>0</code>, Tagged
+<code>False</code>), with the old value as <code>previous</code>.</p>
+<p>Captured ratings outlive the session. The next time the disk is
+built, every served JPEG with a sidecar is served with the sidecar’s
+values merged into its XMP packet. Only those four properties are
+replaced; the rest of the JPEG’s own or its metadata file’s XMP is kept,
+in one packet. An application that re-reads the file after a restart
+finds the ratings it wrote rather than losing them. The served
+modification time stays the source file’s. DNGs are not yet served with
+their captured ratings.</p>
 <p>These sidecars use the Adobe naming convention, so a DNG’s sidecar
 can later sit beside its original, where Lightroom or another
 application can read it. To bring the captured ratings into a Lightroom

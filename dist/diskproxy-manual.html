@@ -157,8 +157,8 @@ and no kernel extension, FUSE driver or Python runtime is needed.</p>
 developers who want to adapt it. It covers installation, everyday
 commands, every configuration key, the three transports, writable views,
 two complete workflows, writing a plugin, the internal architecture,
-limits and troubleshooting. The <a href="https://github.com/firstpair/diskproxy/blob/c9d1fd1ad5dd0b315543b4b5eb052f7cb23eeb69/README.md">README</a>
-is the short version; the <a href="https://github.com/firstpair/diskproxy/blob/c9d1fd1ad5dd0b315543b4b5eb052f7cb23eeb69/docs/blog/diskproxy/post.md">project
+limits and troubleshooting. The <a href="https://github.com/firstpair/diskproxy/blob/d3ed06eda23c59dd2a6afb86dc1199bfd7d9ca13/README.md">README</a>
+is the short version; the <a href="https://github.com/firstpair/diskproxy/blob/d3ed06eda23c59dd2a6afb86dc1199bfd7d9ca13/docs/blog/diskproxy/post.md">project
 story</a> explains how the design came about.</p>
 <h2 data-number="1.1" id="where-it-fits"><span class="header-section-number">1.1</span> Where it fits</h2>
 <p>This book is one of nine on the FirstPair photo tools. Each owns one
@@ -558,7 +558,7 @@ and applications that work with folders rather than disks:</p>
 <code>http://127.0.0.1:PORT/TOKEN/</code>; treat the URL as a password.
 It implements <code>OPTIONS</code>, <code>PROPFIND</code> with depth 0
 or 1, <code>GET</code> and <code>HEAD</code> with single byte ranges,
-and rejects every other method with <code>403</code>. The <a href="https://github.com/firstpair/diskproxy/blob/c9d1fd1ad5dd0b315543b4b5eb052f7cb23eeb69/docs/webdav.md">transport
+and rejects every other method with <code>403</code>. The <a href="https://github.com/firstpair/diskproxy/blob/d3ed06eda23c59dd2a6afb86dc1199bfd7d9ca13/docs/webdav.md">transport
 guide</a> lists the supported properties and limits.</p>
 <h2 data-number="1.8" id="writable-views"><span class="header-section-number">1.8</span> Writable views</h2>
 <p>Some applications write metadata into the files they show: Photo
@@ -646,7 +646,7 @@ which is how <code>diskproxy stop</code> ends it, it passes everything
 still pending before exiting.</p>
 <h2 data-number="1.9" id="workflow-camera-card-ingest-with-photo-mechanic-plus"><span class="header-section-number">1.9</span> Workflow: camera-card ingest
 with Photo Mechanic Plus</h2>
-<p>This is the workflow diskproxy was first written for. The <a href="https://github.com/firstpair/diskproxy/blob/c9d1fd1ad5dd0b315543b4b5eb052f7cb23eeb69/plugins/pmp/README.md">PMP
+<p>This is the workflow diskproxy was first written for. The <a href="https://github.com/firstpair/diskproxy/blob/d3ed06eda23c59dd2a6afb86dc1199bfd7d9ca13/plugins/pmp/README.md">PMP
 guide</a> is the complete reference.</p>
 <h3 data-number="1.9.1" id="the-problem"><span class="header-section-number">1.9.1</span> The problem</h3>
 <p>Photo Mechanic Plus records each ingested file’s path, size and
@@ -699,7 +699,7 @@ ingested files.</p>
 <h2 data-number="1.10" id="workflow-a-photo-library-served-from-its-previews"><span class="header-section-number">1.10</span> Workflow: a photo library
 served from its previews</h2>
 <p>The <code>previews</code> plugin builds a browsable library out of
-files that already exist. Its <a href="https://github.com/firstpair/diskproxy/blob/c9d1fd1ad5dd0b315543b4b5eb052f7cb23eeb69/plugins/previews/README.md">guide</a>
+files that already exist. Its <a href="https://github.com/firstpair/diskproxy/blob/d3ed06eda23c59dd2a6afb86dc1199bfd7d9ca13/plugins/previews/README.md">guide</a>
 is the complete reference; this section walks through a whole setup.</p>
 <h3 data-number="1.10.1" id="the-idea"><span class="header-section-number">1.10.1</span> The idea</h3>
 <p>Suppose your originals are offline, but you have two smaller things
@@ -928,6 +928,19 @@ object per line:</p>
 <code>previous</code> the values before this change. The ratings folder
 must be outside the served tree; the plugin refuses to start
 otherwise.</p>
+<p>Clearing is captured too. When a file captured before is written
+without one of these properties, because the application removed it or
+its whole XMP block, the property is recorded as cleared (Rating
+<code>0</code>, an empty Label, ColorClass <code>0</code>, Tagged
+<code>False</code>), with the old value as <code>previous</code>.</p>
+<p>Captured ratings outlive the session. The next time the disk is
+built, every served JPEG with a sidecar is served with the sidecar’s
+values merged into its XMP packet. Only those four properties are
+replaced; the rest of the JPEG’s own or its metadata file’s XMP is kept,
+in one packet. An application that re-reads the file after a restart
+finds the ratings it wrote rather than losing them. The served
+modification time stays the source file’s. DNGs are not yet served with
+their captured ratings.</p>
 <p>These sidecars use the Adobe naming convention, so a DNG’s sidecar
 can later sit beside its original, where Lightroom or another
 application can read it. To bring the captured ratings into a Lightroom
@@ -962,8 +975,8 @@ in 6,521 folders scanned in 111 seconds on a busy machine (load average
 trait from <code>diskproxy-core</code> and is linked into the
 application at build time. There is no dynamic loading: adding a plugin
 means adding a crate and registering it in <code>src/main.rs</code>. The
-<a href="https://github.com/firstpair/diskproxy/blob/c9d1fd1ad5dd0b315543b4b5eb052f7cb23eeb69/docs/plugins.md">plugin
-guide</a> gives every step, and the <a href="https://github.com/firstpair/diskproxy/blob/c9d1fd1ad5dd0b315543b4b5eb052f7cb23eeb69/examples/hide-plugin/README.md">hide
+<a href="https://github.com/firstpair/diskproxy/blob/d3ed06eda23c59dd2a6afb86dc1199bfd7d9ca13/docs/plugins.md">plugin
+guide</a> gives every step, and the <a href="https://github.com/firstpair/diskproxy/blob/d3ed06eda23c59dd2a6afb86dc1199bfd7d9ca13/examples/hide-plugin/README.md">hide
 example</a> is a complete, compiled reference with a patch that
 registers it.</p>
 <h3 data-number="1.11.1" id="the-trait"><span class="header-section-number">1.11.1</span> The trait</h3>
