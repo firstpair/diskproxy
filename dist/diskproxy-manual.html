@@ -157,8 +157,8 @@ and no kernel extension, FUSE driver or Python runtime is needed.</p>
 developers who want to adapt it. It covers installation, everyday
 commands, every configuration key, the three transports, writable views,
 two complete workflows, writing a plugin, the internal architecture,
-limits and troubleshooting. The <a href="https://github.com/firstpair/diskproxy/blob/a65b2f2b2df33d2376d43e438a7c40b275899c90/README.md">README</a>
-is the short version; the <a href="https://github.com/firstpair/diskproxy/blob/a65b2f2b2df33d2376d43e438a7c40b275899c90/docs/blog/diskproxy/post.md">project
+limits and troubleshooting. The <a href="https://github.com/firstpair/diskproxy/blob/38d97513e10e360b3194470c797e41cd421a46e9/README.md">README</a>
+is the short version; the <a href="https://github.com/firstpair/diskproxy/blob/38d97513e10e360b3194470c797e41cd421a46e9/docs/blog/diskproxy/post.md">project
 story</a> explains how the design came about.</p>
 <h2 data-number="1.1" id="where-it-fits"><span class="header-section-number">1.1</span> Where it fits</h2>
 <p>This book is one of nine on the FirstPair photo tools. Each owns one
@@ -569,7 +569,7 @@ and applications that work with folders rather than disks:</p>
 <code>http://127.0.0.1:PORT/TOKEN/</code>; treat the URL as a password.
 It implements <code>OPTIONS</code>, <code>PROPFIND</code> with depth 0
 or 1, <code>GET</code> and <code>HEAD</code> with single byte ranges,
-and rejects every other method with <code>403</code>. The <a href="https://github.com/firstpair/diskproxy/blob/a65b2f2b2df33d2376d43e438a7c40b275899c90/docs/webdav.md">transport
+and rejects every other method with <code>403</code>. The <a href="https://github.com/firstpair/diskproxy/blob/38d97513e10e360b3194470c797e41cd421a46e9/docs/webdav.md">transport
 guide</a> lists the supported properties and limits.</p>
 <h2 data-number="1.8" id="writable-views"><span class="header-section-number">1.8</span> Writable views</h2>
 <p>Some applications write metadata into the files they show: Photo
@@ -657,7 +657,7 @@ which is how <code>diskproxy stop</code> ends it, it passes everything
 still pending before exiting.</p>
 <h2 data-number="1.9" id="workflow-camera-card-ingest-with-photo-mechanic-plus"><span class="header-section-number">1.9</span> Workflow: camera-card ingest
 with Photo Mechanic Plus</h2>
-<p>This is the workflow diskproxy was first written for. The <a href="https://github.com/firstpair/diskproxy/blob/a65b2f2b2df33d2376d43e438a7c40b275899c90/plugins/pmp/README.md">PMP
+<p>This is the workflow diskproxy was first written for. The <a href="https://github.com/firstpair/diskproxy/blob/38d97513e10e360b3194470c797e41cd421a46e9/plugins/pmp/README.md">PMP
 guide</a> is the complete reference.</p>
 <h3 data-number="1.9.1" id="the-problem"><span class="header-section-number">1.9.1</span> The problem</h3>
 <p>Photo Mechanic Plus records each ingested file’s path, size and
@@ -688,9 +688,13 @@ convention. The photos themselves, and their EXIF capture times, are
 never changed.</p>
 <h3 data-number="1.9.3" id="setting-up"><span class="header-section-number">1.9.3</span> Setting up</h3>
 <div class="sourceCode" id="cb12"><pre class="sourceCode sh"><code class="sourceCode bash"><span id="cb12-1"><a href="#cb12-1" aria-hidden="true" tabindex="-1"></a><span class="ex">scripts/install.sh</span> <span class="at">--config</span> configs/pmp.json</span></code></pre></div>
-<p>The example config expects the card at <code>/Volumes/LEICA M</code>;
-edit <code>source</code> for another card name, or pass the path to
-<code>start</code>.</p>
+<p>You don’t need to name the card. If the config’s <code>source</code>
+isn’t mounted, or the config has no <code>source</code>, diskproxy uses
+the one mounted volume that has a <code>DCIM</code> folder and isn’t a
+disk image (so a running diskproxy view isn’t picked up as a card). If
+several cards are mounted, it stops and lists them; pass the one you
+want to <code>start</code>. A path given on the command line is always
+used as is.</p>
 <h3 data-number="1.9.4" id="registering-a-new-card"><span class="header-section-number">1.9.4</span> Registering a new card</h3>
 <p>Finish any EXIF corrections first, then, with the card mounted in the
 timezone the Mac is currently set to:</p>
@@ -721,7 +725,7 @@ ingested files.</p>
 <h2 data-number="1.10" id="workflow-a-photo-library-served-from-its-previews"><span class="header-section-number">1.10</span> Workflow: a photo library
 served from its previews</h2>
 <p>The <code>previews</code> plugin builds a browsable library out of
-files that already exist. Its <a href="https://github.com/firstpair/diskproxy/blob/a65b2f2b2df33d2376d43e438a7c40b275899c90/plugins/previews/README.md">guide</a>
+files that already exist. Its <a href="https://github.com/firstpair/diskproxy/blob/38d97513e10e360b3194470c797e41cd421a46e9/plugins/previews/README.md">guide</a>
 is the complete reference; this section walks through a whole setup.</p>
 <h3 data-number="1.10.1" id="the-idea"><span class="header-section-number">1.10.1</span> The idea</h3>
 <p>Suppose your originals are offline, but you have two smaller things
@@ -998,8 +1002,8 @@ in 6,521 folders scanned in 111 seconds on a busy machine (load average
 trait from <code>diskproxy-core</code> and is linked into the
 application at build time. There is no dynamic loading: adding a plugin
 means adding a crate and registering it in <code>src/main.rs</code>. The
-<a href="https://github.com/firstpair/diskproxy/blob/a65b2f2b2df33d2376d43e438a7c40b275899c90/docs/plugins.md">plugin
-guide</a> gives every step, and the <a href="https://github.com/firstpair/diskproxy/blob/a65b2f2b2df33d2376d43e438a7c40b275899c90/examples/hide-plugin/README.md">hide
+<a href="https://github.com/firstpair/diskproxy/blob/38d97513e10e360b3194470c797e41cd421a46e9/docs/plugins.md">plugin
+guide</a> gives every step, and the <a href="https://github.com/firstpair/diskproxy/blob/38d97513e10e360b3194470c797e41cd421a46e9/examples/hide-plugin/README.md">hide
 example</a> is a complete, compiled reference with a patch that
 registers it.</p>
 <h3 data-number="1.11.1" id="the-trait"><span class="header-section-number">1.11.1</span> The trait</h3>

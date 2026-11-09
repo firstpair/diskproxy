@@ -124,7 +124,7 @@ id="workflow-camera-card-ingest-with-photo-mechanic-plus"><span
 class="header-section-number">1.9</span> Workflow: camera-card ingest
 with Photo Mechanic Plus</h2>
 <p>This is the workflow diskproxy was first written for. The <a
-href="https://github.com/firstpair/diskproxy/blob/a65b2f2b2df33d2376d43e438a7c40b275899c90/plugins/pmp/README.md">PMP
+href="https://github.com/firstpair/diskproxy/blob/38d97513e10e360b3194470c797e41cd421a46e9/plugins/pmp/README.md">PMP
 guide</a> is the complete reference.</p>
 <h3 data-number="1.9.1" id="the-problem"><span
 class="header-section-number">1.9.1</span> The problem</h3>
@@ -158,9 +158,13 @@ never changed.</p>
 <h3 data-number="1.9.3" id="setting-up"><span
 class="header-section-number">1.9.3</span> Setting up</h3>
 <div class="sourceCode" id="cb1"><pre class="sourceCode sh"><code class="sourceCode bash"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="ex">scripts/install.sh</span> <span class="at">--config</span> configs/pmp.json</span></code></pre></div>
-<p>The example config expects the card at <code>/Volumes/LEICA M</code>;
-edit <code>source</code> for another card name, or pass the path to
-<code>start</code>.</p>
+<p>You don’t need to name the card. If the config’s <code>source</code>
+isn’t mounted, or the config has no <code>source</code>, diskproxy uses
+the one mounted volume that has a <code>DCIM</code> folder and isn’t a
+disk image (so a running diskproxy view isn’t picked up as a card). If
+several cards are mounted, it stops and lists them; pass the one you
+want to <code>start</code>. A path given on the command line is always
+used as is.</p>
 <h3 data-number="1.9.4" id="registering-a-new-card"><span
 class="header-section-number">1.9.4</span> Registering a new card</h3>
 <p>Finish any EXIF corrections first, then, with the card mounted in the
