@@ -142,7 +142,9 @@ Measured on one library, a tree of 1.26 million files scanned in about a
 minute; the server then used about 1.2 GB of memory, with a 1.8 GB peak during
 startup. With camera metadata spliced into its 566,000 JPEGs (see the previews
 plugin below), the same tree scanned in 110 seconds and used 1.9 GB, with a
-2.5 GB peak. Trees of up to 8 million entries are supported.
+2.5 GB peak. A second library of 835,383 preview JPEGs, all but 440 with
+metadata from a 3.8 GB metadata store, scanned in 111 seconds on a busy machine
+and then used 1.64 GB. Trees of up to 8 million entries are supported.
 
 ### When the volume is busy
 

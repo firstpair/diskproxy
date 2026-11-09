@@ -520,6 +520,42 @@ The cost shows at startup, which now reads every JPEG's Smart Preview as well.
 On the same library, the scan went from 59 seconds to 110, and the server's
 memory from 1.2 GB to 1.9 GB, with a 2.5 GB peak during startup.
 
+### A second library, and whose pixels a tag describes
+
+The plugin then met a second catalog, built by another agent working on the
+same photos. Its 835,383 JPEGs were APFS clones of Lightroom's ordinary preview
+levels, not Smart Previews, and the catalog had to work from the one drive that
+held them. So the metadata was extracted from the originals once, while their
+drives were attached, as small EXIF-only TIFF files written by ExifTool,
+averaging 1.9 KB. As 835,000 separate files they would have been slow to scan
+and to mirror. The plugin gained `metadata_store`: one SQLite file whose
+`stubs` table maps a key to those bytes. A `metadata=` value becomes a key,
+and each blob goes through the same parser as a file. The store is opened
+read-only and immutable, and refused if its write-ahead log still holds
+unwritten pages.
+
+Half of those previews already carried a small EXIF block of Lightroom's own,
+with Orientation, resolution, ExifVersion and ColorSpace but no camera, and the
+plugin served such files unchanged. It now replaces that block with one merged
+block. The camera, lens, exposure and GPS come from the stub, and the JPEG's
+own tags win where both have one, because they describe the preview's pixels.
+The map's orientation and capture time win over both.
+
+The first served version still got one thing wrong, and the other agent caught
+it. Most of these previews are Adobe RGB without an ICC profile, which Photo
+Mechanic renders correctly only through its "assume Adobe RGB when undetermined"
+setting. A stub copied the original's ColorSpace, sRGB for an iPhone, and
+would have relabelled those previews. A metadata file describes the camera's
+file, not the picture being served. So tags that describe pixels (color space,
+components, pixel size, gamma, resolution) now never come from it: the JPEG
+keeps its own, or has none.
+
+The same catalog had 207 files dated 1969-12-31, the placeholder some cameras
+leave when their clock was never set, and exFAT cannot represent that date. One
+such file used to stop the whole disk; it is now shown as 1 January 1980, with a
+warning naming the file. The library scanned in 111 seconds on a busy machine
+and then used 1.64 GB.
+
 ### Making a million files start quickly
 
 The first version of the scanner was built for camera cards of a few thousand
