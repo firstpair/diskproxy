@@ -165,7 +165,7 @@ impl PmpPlugin {
         let Some(history) = &self.history else {
             return Ok(false);
         };
-        if !image_path(parts) || !file.metadata()?.is_file() {
+        if !card_file(parts) || !file.metadata()?.is_file() {
             return Ok(false);
         }
         let meta = self.metadata(parts, file)?;
@@ -202,7 +202,7 @@ impl PmpPlugin {
     fn metadata(&self, parts: &[String], file: &File) -> Result<Meta> {
         let s = file.metadata()?;
         let mut mtime = s.mtime();
-        if image_path(parts) {
+        if card_file(parts) && s.is_file() {
             mtime = corrected_time(mtime, self.source, self.target)?;
         }
         Ok(Meta {
@@ -221,6 +221,14 @@ impl PmpPlugin {
     }
 }
 
+/// A file the camera wrote under DCIM (photo, video, thumbnail): its exFAT
+/// time is local wall time without an offset, so it gets the same normalization
+/// and history matching as photos.
+fn card_file(parts: &[String]) -> bool {
+    parts.len() >= 2 && parts[0] == "DCIM" && !parts.iter().any(|part| part.starts_with("._"))
+}
+
+/// A photo used for fingerprint samples and counted as an image.
 fn image_path(parts: &[String]) -> bool {
     parts.len() >= 2
         && parts[0] == "DCIM"
@@ -255,7 +263,8 @@ impl Plugin for PmpPlugin {
         if parts.iter().any(|p| p.starts_with("._") || p == ".PM_lock") {
             return Ok(false);
         }
-        if image_path(parts)
+        if card_file(parts)
+            && file.is_file()
             && let Some(history) = &self.history
         {
             let stamp = corrected_time(file.mtime(), self.source, self.target)?;
@@ -264,7 +273,7 @@ impl Plugin for PmpPlugin {
         Ok(true)
     }
     fn mtime(&self, parts: &[String], file: &std::fs::Metadata) -> Result<i64> {
-        if image_path(parts) {
+        if card_file(parts) && file.is_file() {
             corrected_time(file.mtime(), self.source, self.target)
         } else {
             Ok(file.mtime())

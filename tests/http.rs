@@ -40,6 +40,13 @@ impl Fixture {
             .unwrap()
             .set_times(FileTimes::new().set_modified(UNIX_EPOCH + Duration::from_secs(1789359132)))
             .unwrap();
+        // A camera video: same zone-less exFAT time, same normalization.
+        let clip = root.join("DCIM/100LEICA/CLIP.MOV");
+        std::fs::write(&clip, b"moov").unwrap();
+        File::open(clip)
+            .unwrap()
+            .set_times(FileTimes::new().set_modified(UNIX_EPOCH + Duration::from_secs(1789359132)))
+            .unwrap();
         std::os::unix::fs::symlink("/etc/hosts", root.join("DCIM/100LEICA/escape.JPG")).unwrap();
         std::os::unix::fs::symlink("/etc", root.join("escape")).unwrap();
         let history = root.join("test-history");
@@ -62,7 +69,8 @@ impl Fixture {
                 concat!(
                     "/DCIM/100LEICA/A & B.DNG\t2560000\t1789413132\n",
                     "DCIM/100LEICA/A & B.DNG\t2560000\t1789413132\n",
-                    "/DCIM/100LEICA/CHANGED.DNG\t8\t1789413132\n"
+                    "/DCIM/100LEICA/CHANGED.DNG\t8\t1789413132\n",
+                    "/DCIM/100LEICA/CLIP.MOV\t4\t1789413132\n"
                 ),
             )
             .unwrap();
@@ -194,6 +202,7 @@ fn filtered_mode_normalizes_history_paths_and_hides_only_exact_matches() {
         3
     );
     assert!(!xml.contains("A%20%26%20B"));
+    assert!(!xml.contains("CLIP.MOV"), "an ingested video is hidden too");
     assert_eq!(
         f.request("GET", "DCIM/100LEICA/NEW.JPG", &[], "").body,
         b"new"
@@ -245,6 +254,11 @@ fn bytes_marker_head_and_corrected_mtime() {
     assert_eq!(
         response.headers["last-modified"],
         "Mon, 14 Sep 2026 19:12:12 GMT"
+    );
+    let clip = fixture.request("HEAD", "DCIM/100LEICA/CLIP.MOV", &[], "");
+    assert_eq!(
+        clip.headers["last-modified"], "Mon, 14 Sep 2026 19:12:12 GMT",
+        "a video's time is corrected like a photo's"
     );
     let head = fixture.request("HEAD", "DCIM/100LEICA/A%20%26%20B.DNG", &[], "");
     assert_eq!(head.status, 200);
@@ -310,9 +324,10 @@ fn dav_listing_escaping_and_property_statuses() {
             doc.descendants()
                 .filter(|n| n.has_tag_name(("DAV:", "response")))
                 .count(),
-            2
+            3
         );
         assert!(xml.contains("A%20%26%20B%2EDNG"));
+        assert!(xml.contains("CLIP%2EMOV"));
         assert!(!xml.contains("escape"));
     }
     let body = "<D:propfind xmlns:D=\"DAV:\"><D:prop><D:getlastmodified/><unknown/><D:unknown/></D:prop></D:propfind>";

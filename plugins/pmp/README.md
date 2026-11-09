@@ -167,9 +167,11 @@ can repeat old files because its history path form differs from disk ingest.
 
 The view exposes only `.pmingest.dat` and `DCIM` at the root. It excludes
 AppleDouble `._` companions and `.PM_lock` files, and does not sample/count them
-as images. Current image timestamp normalization/counting/history filtering
-covers DNG and JPG; other file types under DCIM are passed through without those
-image-specific policies.
+as images. Timestamp normalization and history filtering cover every file the
+camera writes under DCIM (photos, videos such as MOV, thumbnails): they all carry
+the same zone-less exFAT time, and a video left with its raw time is offered
+again after a timezone or daylight-saving change. Fingerprint samples and the
+image count use DNG and JPG only.
 
 ## Observed use case
 
