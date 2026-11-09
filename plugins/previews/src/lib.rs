@@ -26,7 +26,7 @@ use std::collections::HashMap;
 use std::fs::File;
 use std::os::unix::fs::FileExt;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 #[derive(Clone, Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
@@ -40,6 +40,58 @@ pub struct Config {
     pub ratings: Option<PathBuf>,
     /// Directory holding the DNGs named by `metadata=` fields.
     pub metadata_root: Option<PathBuf>,
+    /// SQLite file whose table `stubs(key TEXT PRIMARY KEY, exif BLOB)` holds
+    /// the EXIF-only TIFFs named by `metadata=` keys, instead of `metadata_root`.
+    pub metadata_store: Option<PathBuf>,
+}
+
+/// Where `metadata=` values are looked up.
+enum MetadataSource {
+    Root(Arc<Source>),
+    Store(Mutex<rusqlite::Connection>),
+}
+
+/// A path as an SQLite URI path: unreserved bytes kept, the rest escaped.
+fn uri_path(path: &Path) -> String {
+    use std::os::unix::ffi::OsStrExt;
+    path.as_os_str()
+        .as_bytes()
+        .iter()
+        .map(|&b| match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'/' | b'-' | b'.' | b'_' | b'~' => {
+                (b as char).to_string()
+            }
+            _ => format!("%{b:02X}"),
+        })
+        .collect()
+}
+
+/// Open the stub store read-only and immutable: it is read only at disk build,
+/// and must not change while served. An immutable open ignores a WAL file, so
+/// a store with uncheckpointed WAL content is refused.
+fn open_store(path: &Path) -> Result<rusqlite::Connection> {
+    let mut wal = path.as_os_str().to_owned();
+    wal.push("-wal");
+    if std::fs::metadata(&wal).is_ok_and(|m| m.len() > 0) {
+        bail!(
+            "its -wal file is not empty; run PRAGMA wal_checkpoint(TRUNCATE) and PRAGMA journal_mode=DELETE on it first"
+        );
+    }
+    ensure!(
+        std::fs::metadata(path)?.is_file(),
+        "{} is not a file",
+        path.display()
+    );
+    use rusqlite::OpenFlags;
+    let conn = rusqlite::Connection::open_with_flags(
+        format!("file:{}?immutable=1", uri_path(path)),
+        OpenFlags::SQLITE_OPEN_READ_ONLY
+            | OpenFlags::SQLITE_OPEN_URI
+            | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+    )?;
+    conn.prepare("SELECT exif FROM stubs WHERE key = ?1")
+        .context("the store needs a table stubs(key TEXT PRIMARY KEY, exif BLOB)")?;
+    Ok(conn)
 }
 
 #[derive(Default, Debug, PartialEq)]
@@ -59,7 +111,7 @@ struct Entry {
 pub struct Previews {
     entries: HashMap<Box<str>, Entry>,
     previews: Option<Arc<Source>>,
-    metadata: Option<Arc<Source>>,
+    metadata: Option<MetadataSource>,
     capture: Option<capture::Capture>,
 }
 
@@ -72,6 +124,17 @@ fn components(path: &str) -> Result<Vec<String>> {
         "invalid path in previews map: {path}"
     );
     Ok(parts)
+}
+
+/// A path in composed Unicode (NFC), so a map matches names whichever form
+/// the filesystem stores them in (HFS+ decomposes them).
+fn nfc(path: &str) -> std::borrow::Cow<'_, str> {
+    use unicode_normalization::UnicodeNormalization;
+    if path.is_ascii() {
+        path.into()
+    } else {
+        path.nfc().collect::<String>().into()
+    }
 }
 
 fn parse_map(text: &str) -> Result<HashMap<Box<str>, Entry>> {
@@ -132,7 +195,7 @@ fn parse_map(text: &str) -> Result<HashMap<Box<str>, Entry>> {
             }
         }
         ensure!(
-            entries.insert(path.into(), entry).is_none(),
+            entries.insert(nfc(path).into(), entry).is_none(),
             "duplicate path in previews map: {path}"
         );
     }
@@ -157,14 +220,22 @@ impl Previews {
             None => None,
         };
         let needs_metadata = entries.values().any(|e| e.metadata.is_some());
-        let metadata = match config.metadata_root {
-            Some(root) => {
-                Some(Arc::new(Source::new(&root).with_context(|| {
-                    format!("open metadata_root {}", root.display())
-                })?))
+        let metadata = match (config.metadata_root, config.metadata_store) {
+            (Some(_), Some(_)) => {
+                bail!("plugins.previews: set metadata_root or metadata_store, not both")
             }
-            None if needs_metadata => bail!("plugins.previews.metadata_root is required"),
-            None => None,
+            (Some(root), None) => Some(MetadataSource::Root(Arc::new(
+                Source::new(&root)
+                    .with_context(|| format!("open metadata_root {}", root.display()))?,
+            ))),
+            (None, Some(store)) => Some(MetadataSource::Store(Mutex::new(
+                open_store(&store)
+                    .with_context(|| format!("open metadata_store {}", store.display()))?,
+            ))),
+            (None, None) if needs_metadata => {
+                bail!("plugins.previews.metadata_root or metadata_store is required")
+            }
+            (None, None) => None,
         };
         let capture = config.ratings.map(capture::Capture::new).transpose()?;
         Ok(Self {
@@ -200,7 +271,7 @@ impl Previews {
 
 impl Plugin for Previews {
     fn compose(&self, parts: &[String], file: &File) -> Result<Option<Vec<Piece>>> {
-        let Some(entry) = self.entries.get(parts.join("/").as_str()) else {
+        let Some(entry) = self.entries.get(nfc(&parts.join("/")).as_ref()) else {
             return Ok(None);
         };
         let size = file.metadata()?.len();
@@ -222,9 +293,12 @@ impl Plugin for Previews {
                 .as_ref()
                 .map(|d| std::str::from_utf8(d).unwrap());
             let dng = entry.metadata.as_ref().and_then(|path| {
-                let source = self.metadata.clone()?;
-                match source_metadata(&source, path) {
-                    Ok(m) => Some((m, source, path.clone())),
+                let found = match self.metadata.as_ref()? {
+                    MetadataSource::Root(source) => source_metadata(source, path),
+                    MetadataSource::Store(conn) => store_metadata(conn, path),
+                };
+                match found {
+                    Ok(m) => Some(m),
                     Err(e) => {
                         eprintln!(
                             "previews: {} without metadata from {path}: {e:#}",
@@ -634,30 +708,76 @@ struct DngMetadata {
     ifd0: Vec<Field>,
     exif: Vec<Field>,
     gps: Vec<Field>,
-    /// Offset and length of the XMP packet in the DNG.
-    xmp: Option<(u64, u64)>,
-    stamp: Stamp,
+    xmp: Option<Xmp>,
 }
 
-fn source_metadata(source: &Source, path: &str) -> Result<DngMetadata> {
+/// An XMP packet: read in place from a file, or held when it came from a store.
+enum Xmp {
+    InPlace {
+        source: Arc<Source>,
+        path: Arc<str>,
+        offset: u64,
+        length: u64,
+        stamp: Stamp,
+    },
+    Bytes(Vec<u8>),
+}
+
+impl Xmp {
+    fn len(&self) -> u64 {
+        match self {
+            Xmp::InPlace { length, .. } => *length,
+            Xmp::Bytes(b) => b.len() as u64,
+        }
+    }
+}
+
+const DNG_IFD0_KEEP: fn(u16) -> bool =
+    |tag| IFD0_KEEP.contains(&tag) || tag == CAMERA_SERIAL || tag == LENS_INFO;
+
+fn source_metadata(source: &Arc<Source>, path: &Arc<str>) -> Result<DngMetadata> {
     let file = source.open_raw(&components(path)?)?;
     ensure!(file.metadata()?.is_file(), "not a file");
-    dng_metadata(&file)
-}
-
-fn dng_metadata(file: &File) -> Result<DngMetadata> {
-    let stamp = Stamp::of(file)?;
-    let head = Head::new(file, stamp.size)?;
-    let t = tiff_metadata(&head, stamp.size, |tag| {
-        IFD0_KEEP.contains(&tag) || tag == CAMERA_SERIAL || tag == LENS_INFO
-    })?;
+    let stamp = Stamp::of(&file)?;
+    let head = Head::new(&file, stamp.size)?;
+    let t = tiff_metadata(&head, stamp.size, DNG_IFD0_KEEP)?;
     Ok(DngMetadata {
         order: t.order,
         ifd0: t.ifd0,
         exif: t.exif,
         gps: t.gps,
-        xmp: t.xmp,
-        stamp,
+        xmp: t.xmp.map(|(offset, length)| Xmp::InPlace {
+            source: source.clone(),
+            path: path.clone(),
+            offset,
+            length,
+            stamp,
+        }),
+    })
+}
+
+fn store_metadata(conn: &Mutex<rusqlite::Connection>, key: &str) -> Result<DngMetadata> {
+    use rusqlite::OptionalExtension;
+    let blob: Vec<u8> = {
+        let conn = conn.lock().unwrap();
+        let mut stmt = conn.prepare_cached("SELECT exif FROM stubs WHERE key = ?1")?;
+        stmt.query_row([key], |row| row.get(0))
+            .optional()?
+            .context("no such key in metadata_store")?
+    };
+    let size = blob.len() as u64;
+    let head = Head::bytes(blob);
+    let t = tiff_metadata(&head, size, DNG_IFD0_KEEP)?;
+    let xmp = match t.xmp {
+        Some((offset, length)) => Some(Xmp::Bytes(head.get(offset, length as usize)?)),
+        None => None,
+    };
+    Ok(DngMetadata {
+        order: t.order,
+        ifd0: t.ifd0,
+        exif: t.exif,
+        gps: t.gps,
+        xmp,
     })
 }
 
@@ -809,7 +929,7 @@ fn jpeg_with_exif(
     size: u64,
     orientation: Option<u16>,
     datetime: Option<&str>,
-    dng: Option<(DngMetadata, Arc<Source>, Arc<str>)>,
+    dng: Option<DngMetadata>,
 ) -> Result<Option<Vec<Piece>>> {
     let head = Head::new(file, size)?;
     ensure!(head.get(0, 2)? == [0xff, 0xd8], "not a JPEG");
@@ -854,7 +974,7 @@ fn jpeg_with_exif(
         pos += 2 + len;
     }
     let (o, mut ifd0, mut exif, mut gps) = match (&dng, &own) {
-        (Some((m, ..)), _) => (m.order, m.ifd0.clone(), m.exif.clone(), m.gps.clone()),
+        (Some(m), _) => (m.order, m.ifd0.clone(), m.exif.clone(), m.gps.clone()),
         (None, Some(t)) => (t.order, Vec::new(), Vec::new(), Vec::new()),
         (None, None) => (Order(false), Vec::new(), Vec::new(), Vec::new()),
     };
@@ -901,23 +1021,33 @@ fn jpeg_with_exif(
     // The DNG's XMP replaces the JPEG's own, so there is one packet; a JPEG
     // whose DNG has none keeps its own.
     let mut drop = old_exif;
-    if let Some((m, source, path)) = dng
-        && let Some((offset, length)) = m
-            .xmp
-            .filter(|&(_, l)| l <= 65533 - XMP_SIGNATURE.len() as u64)
+    if let Some(xmp) = dng
+        .and_then(|m| m.xmp)
+        .filter(|x| x.len() <= 65533 - XMP_SIGNATURE.len() as u64)
     {
         drop.extend(old_xmp);
         bytes.extend([0xff, 0xe1]);
-        bytes.extend(((2 + XMP_SIGNATURE.len() as u64 + length) as u16).to_be_bytes());
+        bytes.extend(((2 + XMP_SIGNATURE.len() as u64 + xmp.len()) as u16).to_be_bytes());
         bytes.extend(XMP_SIGNATURE);
-        pieces.push(Piece::Bytes(std::mem::take(&mut bytes)));
-        pieces.push(Piece::Other {
-            source,
-            path,
-            offset,
-            length,
-            stamp: Some(m.stamp),
-        });
+        match xmp {
+            Xmp::Bytes(b) => bytes.extend(b),
+            Xmp::InPlace {
+                source,
+                path,
+                offset,
+                length,
+                stamp,
+            } => {
+                pieces.push(Piece::Bytes(std::mem::take(&mut bytes)));
+                pieces.push(Piece::Other {
+                    source,
+                    path,
+                    offset,
+                    length,
+                    stamp: Some(stamp),
+                });
+            }
+        }
     }
     if !bytes.is_empty() {
         pieces.push(Piece::Bytes(bytes));
@@ -1022,6 +1152,7 @@ mod tests {
             preview_root: Some(dir.path().join("prev")),
             ratings: None,
             metadata_root: Some(dir.path().join("meta")),
+            metadata_store: None,
         })?;
         Ok((dir, p))
     }
@@ -1317,6 +1448,114 @@ mod tests {
         Ok(())
     }
 
+    fn store(path: &Path, rows: &[(&str, &[u8])]) -> Result<()> {
+        let conn = rusqlite::Connection::open(path)?;
+        conn.execute_batch(
+            "PRAGMA journal_mode=WAL; CREATE TABLE stubs(key TEXT PRIMARY KEY, exif BLOB NOT NULL) WITHOUT ROWID;",
+        )?;
+        for (key, exif) in rows {
+            conn.execute(
+                "INSERT INTO stubs VALUES (?1, ?2)",
+                rusqlite::params![key, exif],
+            )?;
+        }
+        conn.execute_batch("PRAGMA wal_checkpoint(TRUNCATE); PRAGMA journal_mode=DELETE;")?;
+        Ok(())
+    }
+
+    #[test]
+    fn a_store_serves_the_same_bytes_as_stub_files() -> Result<()> {
+        let j = jpeg(1600, 1064);
+        let lr = lightroom_jpeg(&j)?;
+        let dir = tempfile::tempdir()?;
+        let d = dir.path();
+        std::fs::create_dir_all(d.join("src/Photo/x"))?;
+        std::fs::create_dir_all(d.join("meta/Photo/x"))?;
+        std::fs::write(d.join("src/Photo/x/a.jpg"), &j)?;
+        std::fs::write(d.join("src/Photo/x/b.jpg"), &lr)?;
+        let mut with_xmp = dng_with_metadata(b"<x:xmpmeta>stub</x:xmpmeta>");
+        with_xmp.truncate(with_xmp.len() - 7);
+        let mut plain = dng_with_metadata(b"");
+        plain.truncate(plain.len() - 7);
+        std::fs::write(d.join("meta/Photo/x/a.exif"), &with_xmp)?;
+        std::fs::write(d.join("meta/Photo/x/b.exif"), &plain)?;
+        store(
+            &d.join("my stubs %#?.sqlite"),
+            &[("Photo/x/a.jpg", &with_xmp), ("Photo/x/b.jpg", &plain)],
+        )?;
+        let open = |map: &str, root: bool| -> Result<Previews> {
+            std::fs::write(d.join("map.tsv"), map)?;
+            Previews::new(Config {
+                map: Some(d.join("map.tsv")),
+                metadata_root: root.then(|| d.join("meta")),
+                metadata_store: (!root).then(|| d.join("my stubs %#?.sqlite")),
+                ..Config::default()
+            })
+        };
+        let by_file = open(
+            "Photo/x/a.jpg\tmetadata=Photo/x/a.exif\torientation=6\nPhoto/x/b.jpg\tmetadata=Photo/x/b.exif\torientation=3\n",
+            true,
+        )?;
+        let by_store = open(
+            "Photo/x/a.jpg\tmetadata=Photo/x/a.jpg\torientation=6\nPhoto/x/b.jpg\tmetadata=Photo/x/b.jpg\torientation=3\n",
+            false,
+        )?;
+        for (name, own, stub) in [("a.jpg", &j, &with_xmp), ("b.jpg", &lr, &plain)] {
+            let parts: Vec<String> = ["Photo", "x", name].map(String::from).into();
+            let f = File::open(d.join("src/Photo/x").join(name))?;
+            let a = assemble(by_file.compose(&parts, &f)?.unwrap(), own, stub);
+            let b = assemble(by_store.compose(&parts, &f)?.unwrap(), own, &[]);
+            assert_eq!(a, b, "{name}: store and file give the same bytes");
+            assert!(b.windows(5).any(|w| w == b"Maker"), "{name}: camera served");
+        }
+
+        // A missing key serves the map's values and the JPEG's own tags.
+        let missing = open("Photo/x/b.jpg\tmetadata=nope\torientation=8\n", false)?;
+        let parts: Vec<String> = ["Photo", "x", "b.jpg"].map(String::from).into();
+        let f = File::open(d.join("src/Photo/x/b.jpg"))?;
+        let out = assemble(missing.compose(&parts, &f)?.unwrap(), &lr, &[]);
+        let seglen = u16::from_be_bytes([out[4], out[5]]) as usize;
+        let t = &out[12..4 + seglen];
+        assert_eq!(&t[..2], b"MM", "the JPEG's own byte order");
+        assert_eq!(value(t, 8, 274), [0, 8]);
+        assert!(!out.windows(5).any(|w| w == b"Maker"));
+
+        // Both sources, or a store with WAL content, are refused.
+        assert!(
+            Previews::new(Config {
+                map: Some(d.join("map.tsv")),
+                metadata_root: Some(d.join("meta")),
+                metadata_store: Some(d.join("my stubs %#?.sqlite")),
+                ..Config::default()
+            })
+            .is_err()
+        );
+        std::fs::write(d.join("my stubs %#?.sqlite-wal"), b"x")?;
+        let err = open("", false).err().unwrap();
+        assert!(
+            format!("{err:#}").contains("-wal file is not empty"),
+            "{err:#}"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn map_paths_match_either_unicode_form() -> Result<()> {
+        let j = jpeg(1600, 1064);
+        // The map is NFC (é as one code point); the file name is NFD, as HFS+
+        // stores it (e plus a combining acute accent).
+        let (dir, p) = setup("caf\u{e9}/b.jpg\torientation=6\n", &[])?;
+        std::fs::create_dir_all(dir.path().join("src/cafe\u{301}"))?;
+        std::fs::write(dir.path().join("src/cafe\u{301}/b.jpg"), &j)?;
+        let f = File::open(dir.path().join("src/cafe\u{301}/b.jpg"))?;
+        let parts = vec!["cafe\u{301}".to_string(), "b.jpg".to_string()];
+        assert!(
+            p.compose(&parts, &f)?.is_some(),
+            "NFD name found by NFC map path"
+        );
+        Ok(())
+    }
+
     #[test]
     fn known_preview_stamp_skips_opening_and_matches_the_opened_layout() -> Result<()> {
         use std::os::unix::fs::MetadataExt;
@@ -1336,6 +1575,7 @@ mod tests {
                 preview_root: Some(dir.path().join("prev")),
                 ratings: None,
                 metadata_root: Some(dir.path().join("meta")),
+                metadata_store: None,
             })
         };
         let f = File::open(dir.path().join("src/a.dng"))?;

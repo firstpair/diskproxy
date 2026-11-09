@@ -505,7 +505,10 @@ served unchanged with a warning in the server log, rather than failing the disk.
 }
 ```
 
-`metadata_root` is needed only when the map has `metadata=` fields. Leave out
+`metadata_root` is needed only when the map has `metadata=` fields. For a very
+large library, `metadata_store` can name one SQLite file holding all the
+metadata files as blobs in a table `stubs(key TEXT PRIMARY KEY, exif BLOB)`, with
+`metadata=` giving the key; see the previews plugin guide. Leave out
 `writable` and `ratings` for a purely read-only library. Start it with
 `diskproxy --config library.json start`. Check one file through the mounted
 volume:

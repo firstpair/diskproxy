@@ -74,7 +74,7 @@ UTF-8 text, one line per file: a path relative to the source, then TAB-separated
 | Key | Applies to | Value |
 | --- | --- | --- |
 | `preview` | DNG, TIFF | JPEG path relative to `preview_root` |
-| `metadata` | JPEG | DNG path relative to `metadata_root`, whose EXIF and XMP the JPEG is served with |
+| `metadata` | JPEG | DNG path relative to `metadata_root`, or a key in `metadata_store`, whose EXIF and XMP the JPEG is served with |
 | `orientation` | JPEG | EXIF orientation, 1–8 |
 | `datetime` | JPEG | `YYYY:MM:DD HH:MM:SS` |
 | `preview_size` | DNG, TIFF | Optional: the preview JPEG's size in bytes |
@@ -105,6 +105,30 @@ example with `stat -f '%z %Fm'`.
   }
 }
 ```
+
+### A metadata store instead of files
+
+Hundreds of thousands of small metadata files are slow to scan and copy. Instead
+of `metadata_root`, set `metadata_store` to one SQLite file holding them:
+
+```sql
+CREATE TABLE stubs(key TEXT PRIMARY KEY, exif BLOB NOT NULL) WITHOUT ROWID;
+```
+
+Each `exif` blob is exactly what a metadata file would hold, typically an
+EXIF-only TIFF from ExifTool. A `metadata=` value is then a key, matched byte
+for byte (case-sensitive, no Unicode normalization). The blobs are read once
+while the disk is built; one that has XMP has the packet kept in memory, since
+it cannot be read in place. The store is opened read-only and immutable, so it
+must not change while served. An immutable open ignores a WAL file, so a store
+whose `-wal` file is not empty is refused: finish writing with
+`PRAGMA wal_checkpoint(TRUNCATE); PRAGMA journal_mode=DELETE;`. A missing key
+is handled like a missing metadata file. `metadata_root` and `metadata_store`
+cannot both be set.
+
+Map paths (the first column) are compared in composed Unicode (NFC), so a map
+written in NFC matches names that the filesystem stores decomposed, as HFS+
+does.
 
 ```sh
 diskproxy --config previews.json start

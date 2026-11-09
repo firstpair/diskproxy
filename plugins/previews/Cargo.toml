@@ -10,6 +10,8 @@ serde = { version = "1", features = ["derive"] }
 diskproxy-core = { path = "../../crates/core" }
 roxmltree = "0.20"
 serde_json = "1.0.154"
+rusqlite = { version = "0.41", features = ["bundled"] }
+unicode-normalization = "0.1.26"
 
 [dev-dependencies]
 tempfile = "3"
