@@ -1,4 +1,4 @@
-slug: diskproxy-manual
+slug: diskproxy
 shelf: technology, photography
 default_edition: full
 
@@ -31,7 +31,7 @@ This title's intended edition is **full**. Both this source repository and First
 ```sh
 cd "$HOME/src/firstpair"
 npm run library:publish -- /absolute/path/to/diskproxy \
-  --slug diskproxy-manual --full \
+  --slug diskproxy --full \
   --title "The diskproxy Manual" \
   --description "Virtual disks, NFS and WebDAV views that never write to the source: commands, configuration, writable views, camera-card ingest, preview libraries and plugins." \
   --kicker "A complete user and developer guide" --tags "macos,photography,filesystems,rust" \
@@ -40,7 +40,7 @@ npm run library:publish -- /absolute/path/to/diskproxy \
 
 After the plan and artifacts are reviewed and publication is authorized, run the same command without the dry-run suppression flags. Commit and push the FirstPair metadata produced in that same publication session.
 
-Reader-facing routes will be `https://firstpair.org/diskproxy-manual/pdf/`, `/diskproxy-manual/epub/`, `/read/diskproxy-manual/` and `/read/diskproxy-manual/chapters/`. Raw object-storage URLs belong in FirstPair manifests, not in reader-facing prose.
+Reader-facing routes will be `https://firstpair.org/books/diskproxy/`, `/diskproxy/pdf/`, `/diskproxy/epub/`, `/read/diskproxy/` and `/read/diskproxy/chapters/`. The slug was `diskproxy-manual` for the 1.0.0 edition; the build's file stem stays `diskproxy-manual`. Raw object-storage URLs belong in FirstPair manifests, not in reader-facing prose.
 
 ## Blog
 
