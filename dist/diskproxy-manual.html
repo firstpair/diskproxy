@@ -5,7 +5,7 @@
   <meta name="generator" content="pandoc 3.12.1" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
   <meta name="author" content="FirstPair contributors" />
-  <meta name="dcterms.date" content="2026-11-09" />
+  <meta name="dcterms.date" content="2026-11-10" />
   <meta name="description" content="A complete guide to diskproxy, from everyday commands and configuration to writable views, camera-card ingest, preview libraries and writing plugins." />
   <title>The diskproxy Manual</title>
   <style>
@@ -112,7 +112,7 @@ img { max-width: 100%; height: auto; }
 <p class="subtitle">Virtual disks, NFS and WebDAV views that never write
 to the source</p>
 <p class="author">FirstPair contributors</p>
-<p class="date">2026-11-09</p>
+<p class="date">2026-11-10</p>
 </header>
 <nav id="TOC" role="doc-toc">
 <ul>
@@ -157,8 +157,8 @@ and no kernel extension, FUSE driver or Python runtime is needed.</p>
 developers who want to adapt it. It covers installation, everyday
 commands, every configuration key, the three transports, writable views,
 two complete workflows, writing a plugin, the internal architecture,
-limits and troubleshooting. The <a href="https://github.com/firstpair/diskproxy/blob/67dc636b8012a275e9b493c94708298e30b8447a/README.md">README</a>
-is the short version; the <a href="https://github.com/firstpair/diskproxy/blob/67dc636b8012a275e9b493c94708298e30b8447a/docs/blog/diskproxy/post.md">project
+limits and troubleshooting. The <a href="https://github.com/firstpair/diskproxy/blob/82a80318036b6ab4378845e11d3471aaab82f722/README.md">README</a>
+is the short version; the <a href="https://github.com/firstpair/diskproxy/blob/82a80318036b6ab4378845e11d3471aaab82f722/docs/blog/diskproxy/post.md">project
 story</a> explains how the design came about.</p>
 <h2 data-number="1.1" id="where-it-fits"><span class="header-section-number">1.1</span> Where it fits</h2>
 <p>This book is one of nine on the FirstPair photo tools. Each owns one
@@ -170,18 +170,22 @@ walks a TIFF or DNG file’s structure under a fixed grammar and finds its
 editable XMP packet.</li>
 <li><strong><a href="https://firstpair.org/books/phidentify/">phidentify</a></strong>
 computes a photo’s identities: SHA-256, DNG raw blocks, image data,
-Lightroom fingerprint, metadata record and preserved digest.</li>
+block marks, Lightroom fingerprint, metadata record and preserved
+digest, and the skeleton that rebuilds a file from an edited copy.</li>
 <li><strong><a href="https://firstpair.org/books/phindex/">phindex</a></strong> keeps
-those identities for every file of a volume, and aligns two volumes by
-content.</li>
+those identities and a skeleton for every file of a volume, aligns two
+volumes by content, and restores a file as it was before a metadata
+edit.</li>
 <li><strong><a href="https://firstpair.org/books/dng-compare/">DNG
 Compare</a></strong> compares pairs and preserves one side byte for byte
-as deltas against the other, with a searchable metadata section, through
+as deltas against the other, restorable even after the other side is
+edited, with a searchable metadata section, through
 <code>dngc</code>.</li>
 <li><strong><a href="https://firstpair.org/books/semantic-unison/">Semantic
 Unison</a></strong> synchronizes photo trees, sending metadata edits
-without resending image bytes, and preserves what a shuttle disk brings
-into the same archives.</li>
+without resending image bytes, keeps the versions it replaces as small
+skeletons, and preserves what a shuttle disk brings into the same
+archives.</li>
 <li><strong><a href="https://firstpair.org/books/packdir/">packdir</a></strong> keeps
 directories of small files as SQLite archives that still work like plain
 files.</li>
@@ -583,7 +587,7 @@ and applications that work with folders rather than disks:</p>
 <code>http://127.0.0.1:PORT/TOKEN/</code>; treat the URL as a password.
 It implements <code>OPTIONS</code>, <code>PROPFIND</code> with depth 0
 or 1, <code>GET</code> and <code>HEAD</code> with single byte ranges,
-and rejects every other method with <code>403</code>. The <a href="https://github.com/firstpair/diskproxy/blob/67dc636b8012a275e9b493c94708298e30b8447a/docs/webdav.md">transport
+and rejects every other method with <code>403</code>. The <a href="https://github.com/firstpair/diskproxy/blob/82a80318036b6ab4378845e11d3471aaab82f722/docs/webdav.md">transport
 guide</a> lists the supported properties and limits.</p>
 <h2 data-number="1.8" id="writable-views"><span class="header-section-number">1.8</span> Writable views</h2>
 <p>Some applications write metadata into the files they show: Photo
@@ -671,7 +675,7 @@ which is how <code>diskproxy stop</code> ends it, it passes everything
 still pending before exiting.</p>
 <h2 data-number="1.9" id="workflow-camera-card-ingest-with-photo-mechanic-plus"><span class="header-section-number">1.9</span> Workflow: camera-card ingest
 with Photo Mechanic Plus</h2>
-<p>This is the workflow diskproxy was first written for. The <a href="https://github.com/firstpair/diskproxy/blob/67dc636b8012a275e9b493c94708298e30b8447a/plugins/pmp/README.md">PMP
+<p>This is the workflow diskproxy was first written for. The <a href="https://github.com/firstpair/diskproxy/blob/82a80318036b6ab4378845e11d3471aaab82f722/plugins/pmp/README.md">PMP
 guide</a> is the complete reference.</p>
 <h3 data-number="1.9.1" id="the-problem"><span class="header-section-number">1.9.1</span> The problem</h3>
 <p>Photo Mechanic Plus records each ingested file’s path, size and
@@ -739,7 +743,7 @@ ingested files.</p>
 <h2 data-number="1.10" id="workflow-a-photo-library-served-from-its-previews"><span class="header-section-number">1.10</span> Workflow: a photo library
 served from its previews</h2>
 <p>The <code>previews</code> plugin builds a browsable library out of
-files that already exist. Its <a href="https://github.com/firstpair/diskproxy/blob/67dc636b8012a275e9b493c94708298e30b8447a/plugins/previews/README.md">guide</a>
+files that already exist. Its <a href="https://github.com/firstpair/diskproxy/blob/82a80318036b6ab4378845e11d3471aaab82f722/plugins/previews/README.md">guide</a>
 is the complete reference; this section walks through a whole setup.</p>
 <h3 data-number="1.10.1" id="the-idea"><span class="header-section-number">1.10.1</span> The idea</h3>
 <p>Suppose your originals are offline, but you have two smaller things
@@ -1016,8 +1020,8 @@ in 6,521 folders scanned in 111 seconds on a busy machine (load average
 trait from <code>diskproxy-core</code> and is linked into the
 application at build time. There is no dynamic loading: adding a plugin
 means adding a crate and registering it in <code>src/main.rs</code>. The
-<a href="https://github.com/firstpair/diskproxy/blob/67dc636b8012a275e9b493c94708298e30b8447a/docs/plugins.md">plugin
-guide</a> gives every step, and the <a href="https://github.com/firstpair/diskproxy/blob/67dc636b8012a275e9b493c94708298e30b8447a/examples/hide-plugin/README.md">hide
+<a href="https://github.com/firstpair/diskproxy/blob/82a80318036b6ab4378845e11d3471aaab82f722/docs/plugins.md">plugin
+guide</a> gives every step, and the <a href="https://github.com/firstpair/diskproxy/blob/82a80318036b6ab4378845e11d3471aaab82f722/examples/hide-plugin/README.md">hide
 example</a> is a complete, compiled reference with a patch that
 registers it.</p>
 <h3 data-number="1.11.1" id="the-trait"><span class="header-section-number">1.11.1</span> The trait</h3>
