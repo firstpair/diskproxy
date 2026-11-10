@@ -1,5 +1,5 @@
 slug: diskproxy
-shelf: technology, photography
+shelf: unix, photography
 default_edition: full
 
 # FirstPair publication contract
