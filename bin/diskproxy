@@ -228,18 +228,23 @@ trap cleanup EXIT
 # anything else mounts the read-only (or shadow-writable) disk image.
 mode=disk
 [[ -n $config_file && $(plutil -extract mode raw -o - "$config_file" 2>/dev/null) == nfs ]] && mode=nfs
-if [[ $mode == nfs ]]; then
-  nohup "$server" serve "${config_args[@]}" "$@" --overlay "$session/overlay" \
-    > "$session/server.json" 2> "$session/server.err" < /dev/null &
-else
-  nohup "$server" serve "${config_args[@]}" "$@" --mode disk > "$session/server.json" 2> "$session/server.err" < /dev/null &
-fi
-pid=$!
-print -r -- "$pid" > "$session/pid"
-ps -p "$pid" -o lstart= > "$session/birth" || true
+launch_server() {
+  if [[ $mode == nfs ]]; then
+    nohup "$server" serve "${config_args[@]}" "$@" --overlay "$session/overlay" \
+      > "$session/server.json" 2> "$session/server.err" < /dev/null &
+  else
+    nohup "$server" serve "${config_args[@]}" "$@" --mode disk > "$session/server.json" 2> "$session/server.err" < /dev/null &
+  fi
+  pid=$!
+  print -r -- "$pid" > "$session/pid"
+  ps -p "$pid" -o lstart= > "$session/birth" || true
+}
+launch_server "$@"
+registered=0
 url=''
 # Large trees take minutes to scan; wait while the server is alive (15 min cap).
-for attempt in {1..9000}; do
+attempt=0
+while (( ++attempt <= 9000 )); do
   if (( attempt % 20 == 0 )); then
     # Show the server's latest scan progress line, updating in place on a terminal.
     line=$(grep '^progress: ' "$session/server.err" 2>/dev/null | tail -1)
@@ -276,6 +281,19 @@ for attempt in {1..9000}; do
         registration_args+=("$remaining[1]")
         remaining=("${remaining[@]:1}")
       done
+      # A new card: register it once (current timezone; existing profiles are
+      # never rewritten), then start its view.
+      if (( ! registered )); then
+        registered=1
+        print -u2 'New card: registering it with diskproxy-server...'
+        if "$server" "${config_args[@]}" "$@" > "$session/register.json" 2> "$session/register.err" < /dev/null; then
+          print -u2 'Registered; starting the view.'
+          launch_server "$@"
+          attempt=0
+          continue
+        fi
+        cat "$session/register.err" >&2
+      fi
       ready=1
       rm -rf -- "$session"
       if (( ${#registration_args} )); then

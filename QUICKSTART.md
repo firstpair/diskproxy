@@ -6,13 +6,12 @@ with `"source": "/Volumes/LEICA M"`, as installed by
 
 1. Insert the card and wait until `/Volumes/LEICA M` mounts.
 2. Run `diskproxy start`.
-   - If it prints `Run diskproxy-server.`, the card hasn't been registered yet. Run
-     `diskproxy-server` once, which registers the card and exits, then run
-     `diskproxy start` again.
-   - Before registering a new card, finish any EXIF corrections you intend to make.
-     If the Mac's timezone changed while the card stayed mounted, remount the card
-     first. Otherwise give the offset it was mounted in, for example
-     `diskproxy-server --source-offset=+09:00`.
+   - A card that hasn't been registered yet is registered first (it prints
+     `New card: registering it with diskproxy-server...`), then its view starts.
+   - So finish any EXIF corrections before starting a new card. If the Mac's
+     timezone changed while the card stayed mounted, remount the card first, or
+     register it yourself with the offset it was mounted in, for example
+     `diskproxy-server --source-offset=+09:00`, before `diskproxy start`.
 3. In Photo Mechanic Plus, pick the **PMP Pacific** volume under **Disks** and ingest
    from it, not from the card itself.
 4. When you're done, run `diskproxy stop`, then eject the card.

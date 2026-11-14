@@ -57,8 +57,10 @@ diskproxy-server
 
 It loads `~/.config/diskproxy/config.json`, infers the source offset from the
 Mac's current timezone, defaults a new card without history to UTC, registers,
-and exits. Then `diskproxy start` starts the ingest view normally. If you try
-starting an unregistered card first, the launcher prints just:
+and exits. Then `diskproxy start` starts the ingest view normally. If you start
+an unregistered card first, the launcher runs this same registration for you and
+then starts the view. Only if that registration fails does it print the error
+followed by:
 
 ```text
 Run diskproxy-server.

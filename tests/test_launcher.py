@@ -107,7 +107,8 @@ printf '%s\\n' '{"VolumeUUID":"SYNTHETIC-VOLUME-ID"}'
         self.env["DISKPROXY_CONFIG"] = str(self.config)
         started = self.run_launcher("start")
         self.assertEqual(started.returncode, 78)
-        self.assertEqual(started.stderr, "Run diskproxy-server.\n")
+        self.assertTrue(started.stderr.endswith("Run diskproxy-server.\n"), started.stderr)
+        self.assertIn("registering", started.stderr)
         self.assertEqual(started.stdout, "")
         self.assertEqual(list(self.root.glob("state/sessions/*")), [])
 
@@ -118,7 +119,7 @@ printf '%s\\n' '{"VolumeUUID":"SYNTHETIC-VOLUME-ID"}'
         equivalent.write_bytes(self.config.read_bytes())
         started = self.run_launcher("--config", str(equivalent), "start")
         self.assertEqual(started.returncode, 78)
-        self.assertEqual(started.stderr, "Run diskproxy-server.\n")
+        self.assertTrue(started.stderr.endswith("Run diskproxy-server.\n"), started.stderr)
 
     def test_new_card_preserves_a_custom_source_in_registration_advice(self):
         self.write_executable("server", "#!/bin/sh\nexit 78\n")
@@ -128,6 +129,38 @@ printf '%s\\n' '{"VolumeUUID":"SYNTHETIC-VOLUME-ID"}'
         self.assertIn("Run diskproxy-server", started.stderr)
         self.assertIn("another", started.stderr)
         self.assertNotIn("--source-offset", started.stderr)
+        self.assertEqual(list(self.root.glob("state/sessions/*")), [])
+
+    def test_new_card_is_registered_then_served(self):
+        marker = self.root / "registered"
+        calls = self.root / "calls"
+        self.write_executable("server", f'''#!/bin/sh
+echo "$1" >> "{calls}"
+if [ "$1" != serve ]; then touch "{marker}"; echo '{{"registered":true}}'; exit 0; fi
+[ -f "{marker}" ] || exit 78
+printf '%s\\n' "$@" > "$DISKPROXY_TEST_ARGS"
+printf '%s\\n' '{{"url":"http://127.0.0.1:12345/token/card.img"}}'
+exec /bin/sleep 120
+''')
+        started = self.run_launcher("start", "--config", str(self.config))
+        self.assertEqual(started.returncode, 0, started.stderr)
+        self.assertIn("Registered; starting the view.", started.stderr)
+        self.assertIn("Ready:", started.stdout)
+        self.assertEqual(calls.read_text().split(), ["serve", "--config", "serve"])
+        self.assertEqual(self.run_launcher("--config", str(self.config), "stop").returncode, 0)
+
+    def test_failed_registration_is_tried_once_and_advises(self):
+        calls = self.root / "calls"
+        self.write_executable("server", f'''#!/bin/sh
+echo "$1" >> "{calls}"
+[ "$1" = serve ] || echo "card unreadable" >&2
+exit 78
+''')
+        started = self.run_launcher("start", "--config", str(self.config))
+        self.assertEqual(started.returncode, 78)
+        self.assertIn("card unreadable", started.stderr)
+        self.assertIn("Run diskproxy-server", started.stderr)
+        self.assertEqual(calls.read_text().split(), ["serve", "--config"])
         self.assertEqual(list(self.root.glob("state/sessions/*")), [])
 
     def test_unexpected_startup_error_prints_diagnostics_and_options(self):

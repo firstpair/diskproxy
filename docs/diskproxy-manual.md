@@ -103,6 +103,9 @@ once:
 - **Whichever card is mounted.** The card ingest no longer needs the card's name:
   when the configured card isn't mounted, diskproxy uses the one camera card
   that is ([Setting up](#setting-up)).
+- **New cards register themselves.** `diskproxy start` registers a card it
+  hasn't seen before and then starts its view, instead of asking you to run
+  `diskproxy-server` first ([Registering a new card](#registering-a-new-card)).
 - **Every camera file gets the corrected time,** videos and thumbnails
   included, and a card whose ingests span a daylight-saving change is covered
   as well as one that travelled ([The problem](#the-problem)).
@@ -454,9 +457,12 @@ diskproxy-server
 
 With no command, `diskproxy-server` registers the card: it writes
 `.pmingest.dat` if it is absent and the profile `.pmp-ingest-proxy.json` to the
-card, and exits. If you run `diskproxy start` on an unregistered card, it simply
-prints `Run diskproxy-server.` If the Mac's timezone changed while the card
-stayed mounted, remount it first, or give the offset it was mounted in:
+card, and exits. `diskproxy start` does this for you: on an unregistered card
+it prints `New card: registering it with diskproxy-server...`, registers the
+card the same way and then starts its view. Only if that registration fails
+does it print the error and `Run diskproxy-server.` If the Mac's timezone
+changed while the card stayed mounted, remount it first, or register it
+yourself with the offset it was mounted in before `diskproxy start`:
 
 ```sh
 diskproxy-server --source-offset=+09:00
@@ -857,7 +863,7 @@ the way, so it never detaches a different disk or stops a different process.
 
 | Symptom | Cause and fix |
 | --- | --- |
-| `Run diskproxy-server.` | The camera card is not registered; see [Registering a new card](#registering-a-new-card) |
+| `Run diskproxy-server.` | `diskproxy start` could not register the new card; read the error above it and see [Registering a new card](#registering-a-new-card) |
 | `A view for NAME is already running.` | That config's view is running; use `diskproxy status` or `diskproxy --config FILE stop` |
 | `Several views are running` | `stop` needs `--config FILE` to choose one |
 | `Detach failed. Server left running...` | An application still has files open; close them and run `diskproxy stop` again |
